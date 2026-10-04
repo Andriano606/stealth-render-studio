@@ -804,13 +804,10 @@
         cfgState = await (await fetch('/profile')).json();
         draft = makeDraft(cfgState);
         await loadPresets();
-        // Активний пресет: беремо запам'ятований, якщо він збігається з поточним
-        // профілем; інакше — будь-який, що збігається; інакше — кастом (нічого).
+        // Memorize: підсвічуємо ОСТАННІЙ вибраний пресет із localStorage (просто
+        // довіряємо збереженому вибору; baseline = поточний конфіг, тобто «чисто»).
         const saved = Number(localStorage.getItem('activePresetId')) || null;
-        const savedP = presets.find(p => p.id === saved);
-        if (savedP && presetMatches(savedP.body, cfgState)) activePresetId = saved;
-        else { const m = presets.find(p => presetMatches(p.body, cfgState)); activePresetId = m ? m.id : null; }
-        if (activePresetId) localStorage.setItem('activePresetId', String(activePresetId)); else localStorage.removeItem('activePresetId');
+        activePresetId = presets.some(p => p.id === saved) ? saved : null;
         presetBaseline = activePresetId ? configSig(draft) : null;
         renderPresets(); renderNav(); renderCategory();
       } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
@@ -1049,10 +1046,6 @@
 
     document.getElementById('cfgSave').addEventListener('click', async () => {
       await applyProfile({ launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint }, 'Конфіг');
-      // оновлюємо активний пресет: чи збігається поточний конфіг із якимось пресетом
-      const match = presets.find(p => presetMatches(p.body, cfgState));
-      activePresetId = match ? match.id : null;
-      if (activePresetId) localStorage.setItem('activePresetId', String(activePresetId)); else localStorage.removeItem('activePresetId');
       cfgOverlay.classList.remove('open');
     });
     document.getElementById('cfgReset').addEventListener('click', () => {
