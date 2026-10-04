@@ -49,9 +49,9 @@ function launchArgs() {
   if (L.automationControlled !== false) args.push('--disable-blink-features=AutomationControlled');
   // Справжній апаратний GPU (ANGLE→Metal на Mac) замість софтверного SwiftShader.
   if (L.realGpu !== false) args.push('--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl', '--use-gl=angle', '--use-angle=metal');
-  if (L.siteIsolationDisabled !== false) {
-    args.push('--disable-features=IsolateOrigins,site-per-process', '--disable-site-isolation-trials');
-  }
+  // Ізоляцію сайтів завжди вимкнено — щоб крос-доменні iframe (напр. форма Ashby)
+  // рендерились у спільному процесі й потрапляли у fullPage-скриншот.
+  args.push('--disable-features=IsolateOrigins,site-per-process', '--disable-site-isolation-trials');
   return args;
 }
 // Опції запуску. Новий headless (--headless=new) майже не відрізняється від
@@ -299,7 +299,7 @@ function describeContextLogs(fromPool, warmBrowser) {
     return logs;
   }
   logs.push({ kind: 'browser', text: '    ↳ launch: headless=' + (L.headless !== false) +
-    ', siteIsolation=' + (L.siteIsolationDisabled !== false ? 'вимкнено' : 'за замовчуванням') +
+    ', siteIsolation=вимкнено' +
     ', stealth-plugin=' + (L.stealthPlugin !== false ? 'УВІМК' : 'вимк') +
     ', режим=' + (L.persistent ? 'PERSISTENT (спільний профіль, cookies зберігаються)' : 'ізольований') });
   logs.push({ kind: 'context', text: fromPool

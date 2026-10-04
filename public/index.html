@@ -820,17 +820,12 @@
       if (dirty) {
         const active = presets.find(p => p.id === activePresetId);
         const spacer = document.createElement('span'); spacer.style.flex = '1'; cfgPresets.appendChild(spacer);
-        if (active && !active.builtin) {
+        if (active) {
           const save = document.createElement('button');
           save.className = 'pre-btn'; save.style.borderColor = '#2e7d32'; save.style.color = '#7ddba1';
           save.textContent = '💾 Зберегти в «' + active.name + '»';
           save.addEventListener('click', () => savePreset(active));
           cfgPresets.appendChild(save);
-        } else if (active) {
-          // вбудований не чіпаємо — лише натяк
-          const note = document.createElement('span'); note.className = 'pre-label';
-          note.textContent = '(вбудований — лише «Новий пресет»)';
-          cfgPresets.appendChild(note);
         }
         const neu = document.createElement('button');
         neu.className = 'pre-btn'; neu.style.borderColor = '#4f7cff';
@@ -894,7 +889,6 @@
           html += chk('новий headless (--headless=new)', 'launch.newHeadless', L.newHeadless !== false, 'майже як справжній Chrome. Вимкнути = старий headless (детектованіший).');
           html += chk('--disable-blink-features=AutomationControlled', 'launch.automationControlled', L.automationControlled !== false, 'прибирає сигнал автоматизації на рівні рушія.');
           html += chk('реальний GPU (ANGLE Metal)', 'launch.realGpu', L.realGpu !== false, 'справжні пікселі Canvas/WebGL замість софтверного SwiftShader.');
-          html += chk('вимкнути ізоляцію сайтів', 'launch.siteIsolationDisabled', L.siteIsolationDisabled !== false, 'треба для крос-доменних iframe у скрині (Ashby). Дефолт Playwright: НІ.');
           html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
           html += chk('persistent profile', 'launch.persistent', !!L.persistent, 'спільний профіль на диску (cookies/cache, cf_clearance). БЕЗ ізоляції між запитами.');
         }
@@ -963,7 +957,7 @@
       showProfile(d);
       cfgState = d; draft = makeDraft(d); renderNav(); renderCategory(); renderPresets();
       logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
-      logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', siteIso=' + d.launch.siteIsolationDisabled + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
+      logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
       setLive((note || 'Конфіг') + ' застосовано' + (d.relaunched ? ' (перезапуск)' : '') + '.', false);
       return d;
     }
