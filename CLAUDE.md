@@ -68,12 +68,51 @@ Camoufox драйвиться тим самим Playwright (через прот�
   iframe) через `setInputFiles` — надійніше за `filechooser`.
 - **Лог-консоль** — показує життєвий цикл: рушій, браузер (reuse/launch), контекст,
   що підставлено (fingerprint/cookies/stealth), CF-статус, кроки відтворення (стрім).
-- **Конфігуратор** (⚙) — редагує все, що відрізняється від дефолтного Playwright:
-  рушій, headless, ізоляція сайтів, stealth-plugin, persistent, людська поведінка,
-  fingerprint (UA/locale/tz/platform/cores/screen…).
+- **Конфігуратор** (⚙) — модалка з лівим сайд-меню категорій; редагує ВСЕ (див.
+  окремий розділ нижче). Жодне анти-детект рішення не захардкоджено.
 - **Людська поведінка** при відтворенні: криві рухи миші, змінні затримки, друк по
   буквах, випадкові скроли-«роздивляння».
 - Усе зберігається в **Postgres** (таблиця `pages`, Дії як JSONB).
+
+## Конфігуратор, опції та пресети
+
+Модалка (⚙) має **ліве сайд-меню категорій** + праву панель. Усе зберігається в
+профілі (`profile.json`) і застосовується через `POST /profile` (зміна launch-опцій
+= перезапуск браузера). **Нічого анти-детектного не захардкоджено** — кожен важіль
+вмикається/вимикається.
+
+### Категорії та всі опції
+- **⭐ Пресети** — набори в один клік (див. нижче).
+- **🧩 Рушій** — radio **Chromium** (за замовчуванням) / **Camoufox**; + опції Camoufox:
+  `camoufoxHumanize`, `camoufoxGeoip` (діють лише в режимі Camoufox).
+- **🚀 Запуск** (`launch.*`) — `headless`, `newHeadless` (--headless=new vs старий),
+  `automationControlled` (--disable-blink-features), `realGpu` (ANGLE Metal),
+  `siteIsolationDisabled`, `stealthPlugin`, `persistent`.
+- **🕵️ Stealth** (`stealth.*`) — `webdriver`, `windowChrome`, `outerWindow`,
+  `permissions`, `pwInitScripts`.
+- **🧍 Поведінка** (`behavior.humanize`) — людські рухи/затримки при відтворенні.
+- **🧬 Fingerprint** — UA, locale, timezoneId, platform, vendor, hardwareConcurrency,
+  deviceMemory, deviceScaleFactor, screen (w/h/colorDepth).
+- **🍪 Cookies** — лічильник + очищення.
+
+Draft-модель: значення не губляться при перемиканні категорій; «Зберегти» застосовує.
+
+### Пресети (калібровані)
+- **🛡️ All** — усі опції увімкнено (максимальний Chromium-стелс).
+- **🧹 Clear all** — усе вимкнено = голий дефолтний Playwright (webdriver=true, без
+  stealth, без fingerprint, старий headless, без GPU-флагів). Кнопка «Скинути» = цей пресет.
+- **☁️ Cloudflare** — **лише `engine: camoufox`**. Калібровано: Camoufox проходить
+  rubyonremote навіть БЕЗ humanize/geoip. Chromium (навіть із усім) не проходить.
+- **📋 Ashby** — Chromium + повний стелс + `siteIsolationDisabled` (щоб крос-доменний
+  iframe Ashby рендерився у скрині) + humanize. Перевірено одним прогоном Сценарію 1:
+  фінальний скрін показав зелене «Success — Application received».
+
+### Калібрування (емпіричні результати)
+- **Cloudflare (rubyonremote):** мінімум = Camoufox. `camoufoxHumanize`/`camoufoxGeoip`
+  НЕ потрібні (перевірено — проходить і без них).
+- **Ashby (Preply apply):** повний Chromium-стелс + вимкнена ізоляція сайтів проходить
+  анти-спам (зелене повідомлення). Глибше звуження не калібрувалось: кожен прогін —
+  РЕАЛЬНА відправка заявки в ATS третьої сторони (етичне обмеження, не спамимо).
 
 ## Антидетект: що працює і ЧОМУ (головні висновки сесії)
 
