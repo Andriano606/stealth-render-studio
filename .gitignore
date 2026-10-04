@@ -1,0 +1,20 @@
+node_modules/
+
+# рантайм/генероване
+browser_profile/
+uploads/
+profile.json
+profile*.json
+*.log
+
+# ОС/редактор
+.DS_Store
+.vscode/
+.idea/
+
+# тимчасове
+scratchpad/
+*.tmp
+success.png
+failed_cloudflare.png
+error.png

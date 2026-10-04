@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Playwright Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1115; color: #e6e8ee;
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    header {
+      padding: 12px 16px; border-bottom: 1px solid #242833; background: #151821;
+      display: flex; gap: 10px; align-items: center; flex-shrink: 0;
+    }
+    header input {
+      flex: 1; padding: 11px 14px; font-size: 15px; border: 1px solid #2c3140;
+      border-radius: 10px; background: #0f1115; color: #e6e8ee; outline: none;
+    }
+    header input:focus { border-color: #4f7cff; }
+    header button {
+      padding: 11px 20px; font-size: 15px; font-weight: 600; border: none;
+      border-radius: 10px; background: #4f7cff; color: #fff; cursor: pointer;
+    }
+    header button:disabled { opacity: .5; cursor: default; }
+
+    .workspace { flex: 1; display: flex; min-height: 0; }
+
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .tabs {
+      display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #242833;
+      background: #12141b; overflow-x: auto; flex-shrink: 0; min-height: 46px;
+    }
+    .tab {
+      padding: 7px 12px; font-size: 13px; border: 1px solid #2c3140; border-radius: 8px;
+      background: #0f1115; color: #aeb6c4; cursor: pointer; white-space: nowrap;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tab:hover { border-color: #3a4152; }
+    .tab.active { background: #223; border-color: #4f7cff; color: #fff; }
+    .tabs .empty { color: #5c6575; font-size: 13px; align-self: center; padding: 0 6px; }
+
+    .viewer {
+      flex: 1; overflow: auto; padding: 16px; display: flex; justify-content: center;
+      align-items: flex-start; background: #0b0d12; min-height: 0;
+    }
+    /* За замовчуванням — повна ширина з вертикальною прокруткою (читабельно). */
+    .viewer img { max-width: 100%; border-radius: 10px; border: 1px solid #242833; }
+    /* Режим "вся сторінка": вписуємо весь скриншот у зону по висоті (без прокрутки). */
+    .viewer.fit { align-items: center; }
+    .viewer.fit img { max-height: 100%; }
+    .viewer img.recording { cursor: crosshair; outline: 2px solid #ff5a5a; }
+    .viewer .placeholder { color: #5c6575; font-size: 15px; margin-top: 40px; }
+
+    /* Лог-консоль */
+    .console { border-top: 1px solid #242833; background: #0c0e13; display: flex; flex-direction: column; flex-shrink: 0; }
+    .console.collapsed .console-body { display: none; }
+    .console-head {
+      display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 12px;
+      color: #8b94a3; background: #12141b; border-bottom: 1px solid #1c2230;
+    }
+    .console-head button { background: none; border: 1px solid #2c3140; color: #aeb6c4; border-radius: 6px; cursor: pointer; font-size: 12px; padding: 3px 8px; }
+    .console-body { height: 170px; overflow-y: auto; padding: 8px 12px; font: 12px/1.6 ui-monospace, Menlo, monospace; }
+    .console-body .ln { white-space: pre-wrap; word-break: break-word; }
+    .console-body .ln.run-sep { color: #4f7cff; border-top: 1px dashed #2c3140; margin-top: 6px; padding-top: 6px; }
+    .console-body .ln.browser { color: #c9a36a; }
+    .console-body .ln.context { color: #6fb3ff; }
+    .console-body .ln.fp { color: #7ddba1; }
+    .console-body .ln.stealth { color: #d58cff; }
+    .console-body .ln.cookies { color: #ffb36b; }
+    .console-body .ln.nav, .console-body .ln.shot, .console-body .ln.info { color: #9aa4b2; }
+
+    /* Модалка-конфігуратор */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 100; }
+    .overlay.open { display: flex; }
+    .modal { width: 640px; max-width: 94vw; max-height: 88vh; background: #151821; border: 1px solid #2c3140; border-radius: 14px; display: flex; flex-direction: column; }
+    .modal-head, .modal-foot { display: flex; align-items: center; gap: 10px; padding: 14px 18px; }
+    .modal-head { border-bottom: 1px solid #242833; }
+    .modal-foot { border-top: 1px solid #242833; }
+    .modal-body { padding: 16px 18px; overflow-y: auto; }
+    .modal .x { background: none; border: none; color: #8b94a3; font-size: 18px; cursor: pointer; }
+    .cfg-sec { margin-bottom: 18px; }
+    .cfg-sec h4 { margin: 0 0 8px; font-size: 13px; color: #8b94a3; text-transform: uppercase; letter-spacing: .5px; }
+    .cfg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; font-size: 13px; }
+    .cfg-row label { width: 170px; color: #aeb6c4; flex-shrink: 0; }
+    .cfg-row input[type=text], .cfg-row input[type=number] {
+      flex: 1; padding: 7px 9px; background: #0f1115; border: 1px solid #2c3140; border-radius: 7px; color: #e6e8ee; font-size: 13px;
+    }
+    .cfg-row.changed input { border-color: #4f7cff; }
+    .cfg-badge { font-size: 11px; color: #7ddba1; }
+    .btn-primary { padding: 9px 16px; background: #4f7cff; color: #fff; border: none; border-radius: 9px; font-weight: 600; cursor: pointer; }
+    .btn-ghost { padding: 9px 14px; background: #2a2f3a; color: #aeb6c4; border: 1px solid #3a4152; border-radius: 9px; cursor: pointer; }
+
+    /* Сайдбар */
+    .sidebar {
+      width: 340px; flex-shrink: 0; border-left: 1px solid #242833; background: #151821;
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .sb-head { padding: 12px; border-bottom: 1px solid #242833; flex-shrink: 0; }
+    #newPageBtn {
+      width: 100%; padding: 11px; font-size: 15px; font-weight: 600; border: none;
+      border-radius: 10px; background: #4f7cff; color: #fff; cursor: pointer;
+    }
+    #newPageBtn:disabled { opacity: .45; cursor: default; }
+
+    /* Сторінка */
+    .page { border: 1px solid #2c3550; border-radius: 11px; margin-bottom: 10px; background: #0f131c; overflow: hidden; }
+    .page.page-run { border-color: #4f7cff; }
+    .page-head { display: flex; align-items: center; gap: 6px; padding: 9px 8px 9px 6px; background: #141a28; }
+    .page-head .tg { border: none; background: none; color: #8b94a3; cursor: pointer; font-size: 12px; width: 16px; }
+    .page-head .pname { flex: 1; font-size: 14px; font-weight: 700; color: #e6e8ee; cursor: pointer; }
+    .page-head .pcount { font-size: 11px; color: #6b7686; margin-right: 4px; white-space: nowrap; }
+    .page-url { padding: 5px 12px 8px; font-size: 11px; color: #6fa8ff; word-break: break-all; border-bottom: 1px solid #1c2230; }
+    .page > .rec { margin: 8px 8px 0; }
+    .rec-bar2 { padding: 8px; }
+    .rec-add { width: 100%; padding: 8px; font-size: 13px; font-weight: 600; border: none; border-radius: 8px; background: #e53935; color: #fff; cursor: pointer; }
+    .rec-add.on { background: #2a2f3a; border: 1px solid #ff5a5a; color: #ff9b9b; }
+    .rec-add:disabled { opacity: .4; cursor: default; }
+
+    .live {
+      padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #242833;
+      color: #9aa4b2; flex-shrink: 0; min-height: 42px; display: flex; align-items: center;
+    }
+    .live .dot {
+      width: 9px; height: 9px; border-radius: 50%; background: #ff3b3b;
+      margin-right: 8px; animation: blink 1s infinite; flex-shrink: 0;
+    }
+    .live.playing { color: #9ad; } .live.playing .dot { background: #4f7cff; }
+    @keyframes blink { 50% { opacity: .25; } }
+
+    .sb-title { padding: 10px 14px 4px; font-size: 12px; color: #8b94a3; text-transform: uppercase; letter-spacing: .5px; }
+    .recs { flex: 1; overflow-y: auto; padding: 6px 10px 14px; }
+    .recs .none { color: #5c6575; font-size: 13px; text-align: center; padding: 12px; }
+
+    /* Дія */
+    .rec { border: 1px solid #242c3a; border-radius: 10px; margin-bottom: 8px; background: #11141c; overflow: hidden; }
+    .rec.rec-on { border-color: #ff5a5a; }
+    .rec.rec-run { border-color: #4f7cff; }
+    .rec-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 6px; }
+    .rec-head .tg { border: none; background: none; color: #8b94a3; cursor: pointer; font-size: 12px; width: 16px; }
+    .rec-head .name { flex: 1; font-size: 14px; font-weight: 600; color: #e6e8ee; cursor: pointer; }
+    .rec-head .meta { font-size: 11px; color: #6b7686; margin-right: 4px; white-space: nowrap; }
+    .rec-head .op { border: none; background: none; cursor: pointer; font-size: 13px; padding: 3px 5px; border-radius: 6px; color: #7a8696; }
+    .rec-head .op:hover { background: #222a38; color: #e6e8ee; }
+    .rec-head .op.run { color: #67c98a; }
+    .rec-head .op:disabled { opacity: .35; cursor: default; }
+
+    .subs { list-style: none; margin: 0; padding: 2px 8px 8px 8px; border-top: 1px solid #1c2330; }
+    .subs li {
+      display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #c4ccd8;
+      padding: 5px 6px; border-radius: 6px; margin-top: 4px; background: #0f1115; border: 1px solid #1c2230;
+    }
+    .subs li .n { color: #5c6575; font-size: 10px; min-width: 15px; text-align: right; }
+    .subs li .desc { flex: 1; word-break: break-word; }
+    .subs li .badge { width: 14px; text-align: center; }
+    .subs li.running { border-color: #4f7cff; background: #18203a; color: #fff; } .subs li.running .badge { color: #6fa8ff; }
+    .subs li.done .badge { color: #4caf79; }
+    .subs li.failed { border-color: #5a2a2a; } .subs li.failed .badge { color: #ff6b6b; }
+    .subs li .op { border: none; background: none; cursor: pointer; font-size: 12px; color: #6b7686; padding: 1px 4px; border-radius: 5px; }
+    .subs li .op:hover { background: #222a38; color: #e6e8ee; }
+    .subs .empty { color: #5c6575; justify-content: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <input type="text" id="url" placeholder="Введи URL, напр. preply.com" value="https://example.com" autocomplete="off" />
+    <button id="go" type="button">Підтвердити</button>
+    <button id="fitBtn" type="button" title="Перемкнути режим перегляду" style="background:#2a2f3a;color:#aeb6c4;">↔ Реальна ширина</button>
+    <button id="cfgBtn" type="button" title="Конфігуратор контексту" style="background:#2a2f3a;color:#aeb6c4;">⚙ Конфігуратор</button>
+  </header>
+
+  <input type="file" id="fileInput" style="display:none" />
+
+  <!-- Модалка-конфігуратор -->
+  <div class="overlay" id="cfgOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <b>⚙ Конфігуратор контексту Playwright</b>
+        <span style="flex:1"></span>
+        <button id="cfgClose" class="x">✕</button>
+      </div>
+      <div class="modal-body" id="cfgBody">завантаження…</div>
+      <div class="modal-foot">
+        <button id="cfgReset" class="btn-ghost">↺ Скинути до дефолту Playwright</button>
+        <span style="flex:1"></span>
+        <button id="cfgSave" class="btn-primary">Зберегти й застосувати</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="workspace">
+    <div class="main">
+      <div class="tabs" id="tabs"><span class="empty">Скрінів поки немає</span></div>
+      <div class="viewer" id="viewer">
+        <div class="placeholder">Введи адресу вгорі й натисни «Підтвердити».</div>
+      </div>
+      <div class="console" id="console">
+        <div class="console-head">
+          <span>🧾 Логи (що саме робить Playwright і що підставляється)</span>
+          <span style="flex:1"></span>
+          <button id="consoleClear">очистити</button>
+          <button id="consoleToggle">▾</button>
+        </div>
+        <div class="console-body" id="consoleBody"></div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="sb-head" style="flex-direction:column;align-items:stretch;gap:8px;">
+        <button id="newPageBtn" type="button">➕ Нова сторінка</button>
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#8b94a3;">
+          <span id="profStatus" style="flex:1;">Профіль: …</span>
+        </div>
+      </div>
+      <div class="live" id="live">Готово до роботи.</div>
+      <div class="sb-title">Сторінки → Дії → під-дії</div>
+      <div class="recs" id="pagesEl"><div class="none">Немає сторінок.<br>Натисни «➕ Нова сторінка».</div></div>
+    </aside>
+  </div>
+
+  <script>
+    const urlInput = document.getElementById('url');
+    const goBtn = document.getElementById('go');
+    const tabsEl = document.getElementById('tabs');
+    const viewerEl = document.getElementById('viewer');
+    const newPageBtn = document.getElementById('newPageBtn');
+    const liveEl = document.getElementById('live');
+    const pagesEl = document.getElementById('pagesEl');
+
+    let screens = [];      // {id,label,src,url}
+    let activeId = null;
+    let seq = 0;
+
+    // Модель: Сторінки → Дії (recs) → під-дії (subs)
+    let pages = [];        // {id,name,url,expanded,running,recs:[{id,name,subs,expanded,isRecording,running}]}
+    let pageCounter = 0;
+    let recCounter = 0;
+    let recording = false;
+    let running = false;
+    let curPage = null;    // Сторінка, у яку записуємо
+    let curRec = null;     // Дія, яку зараз записуємо
+    let lastMoveT = 0;
+    let recordImg = null;
+
+    // ---------- Скріни ----------
+    function addScreen(label, src, url) {
+      const id = ++seq;
+      screens.unshift({ id, label, src, url });
+      activeId = id; renderTabs(); showActive();
+    }
+    function renderTabs() {
+      if (!screens.length) { tabsEl.innerHTML = '<span class="empty">Скрінів поки немає</span>'; return; }
+      tabsEl.innerHTML = '';
+      screens.forEach((s) => {
+        const t = document.createElement('div');
+        t.className = 'tab' + (s.id === activeId ? ' active' : '');
+        const ico = s.label.startsWith('🎬') ? '🎬' : '📸';
+        t.innerHTML = '<span>' + ico + '</span>' + escapeHtml(s.label.replace(/^🎬\s*/, ''));
+        t.addEventListener('click', () => { activeId = s.id; renderTabs(); showActive(); });
+        tabsEl.appendChild(t);
+      });
+    }
+    function showActive() {
+      const s = screens.find(x => x.id === activeId);
+      if (!s) { viewerEl.innerHTML = '<div class="placeholder">Немає скріна.</div>'; return; }
+      viewerEl.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = s.src; img.alt = s.label;
+      viewerEl.appendChild(img);
+      recordImg = img;
+      if (recording) img.classList.add('recording');
+      updateRecBtn();
+    }
+
+    // ---------- Рендер сторінки ----------
+    async function render() {
+      const url = urlInput.value.trim();
+      if (!url) return;
+      goBtn.disabled = true;
+      setLive('Playwright відкриває сторінку…', false, true);
+      logRunSep('Рендер: ' + url);
+      try {
+        const r = await fetch('/render', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await r.json();
+        if (!data.ok) { setLive('Помилка: ' + (data.error || 'невідома'), false); logLine('info', '❌ ' + (data.error || '')); return; }
+        logMany(data.logs);
+        addScreen(data.title || url, data.screenshot, data.url || url);
+        setLive('Готово (' + data.timing.totalMs + ' мс).', false);
+      } catch (err) { setLive('Мережева помилка: ' + err.message, false); }
+      finally { goBtn.disabled = false; updateRecBtn(); }
+    }
+    goBtn.addEventListener('click', render);
+    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') render(); });
+
+    // Перемикач режиму перегляду: повна ширина (скрол) ↔ вся сторінка (вписана)
+    const fitBtn = document.getElementById('fitBtn');
+    fitBtn.addEventListener('click', () => {
+      const fit = viewerEl.classList.toggle('fit');
+      fitBtn.textContent = fit ? '🔳 Вся сторінка' : '↔ Реальна ширина';
+    });
+
+    // ---------- Лог-консоль ----------
+    const consoleEl = document.getElementById('console');
+    const consoleBody = document.getElementById('consoleBody');
+    function logLine(kind, text) {
+      const d = document.createElement('div');
+      d.className = 'ln ' + (kind || 'info');
+      d.textContent = text;
+      consoleBody.appendChild(d);
+      consoleBody.scrollTop = consoleBody.scrollHeight;
+    }
+    function logRunSep(label) { logLine('run-sep', '── ' + label + ' ──'); }
+    function logMany(arr) { (arr || []).forEach(l => logLine(l.kind, l.text)); }
+    document.getElementById('consoleClear').addEventListener('click', () => { consoleBody.innerHTML = ''; });
+    document.getElementById('consoleToggle').addEventListener('click', (e) => {
+      const c = consoleEl.classList.toggle('collapsed');
+      e.target.textContent = c ? '▸' : '▾';
+    });
+
+    // ---------- Опис під-дій ----------
+    function subLabel(a) {
+      if (a.type === 'move')  return '🖱️ рух → ' + a.x + ', ' + a.y;
+      if (a.type === 'click') return '👆 клік → ' + a.x + ', ' + a.y;
+      if (a.type === 'text') {
+        if (a.random === 'digit')  return '🎲 рандомна цифра (0–9)';
+        if (a.random === 'letter') return '🎲 рандомна літера (a–z)';
+        return '⌨️ текст: «' + a.text + '»';
+      }
+      if (a.type === 'key')   return '⌨️ клавіша: ' + a.key;
+      if (a.type === 'file')  return '📎 файл: ' + (a.filename || '—');
+      return a.type;
+    }
+    function badge(s) { return s === 'running' ? '▶' : s === 'done' ? '✓' : s === 'failed' ? '✗' : ''; }
+
+    // ---------- Рендер списку Сторінок → Дій → під-дій ----------
+    function renderPages() {
+      if (!pages.length) {
+        pagesEl.innerHTML = '<div class="none">Немає сторінок.<br>Натисни «➕ Нова сторінка».</div>';
+        return;
+      }
+      const busy = running || recording;
+      pagesEl.innerHTML = '';
+      pages.forEach((page) => {
+        const pbox = document.createElement('div');
+        pbox.className = 'page' + (page.running ? ' page-run' : '');
+
+        const phead = document.createElement('div');
+        phead.className = 'page-head';
+        phead.innerHTML =
+          '<button class="tg">' + (page.expanded ? '▾' : '▸') + '</button>' +
+          '<span class="pname">' + escapeHtml(page.name) + '</span>' +
+          '<span class="pcount">' + page.recs.length + ' Дій</span>';
+        phead.querySelector('.tg').addEventListener('click', () => { page.expanded = !page.expanded; renderPages(); });
+        phead.querySelector('.pname').addEventListener('click', () => { page.expanded = !page.expanded; renderPages(); });
+        phead.appendChild(mkOp('▶ Старт', 'Запустити послідовність (або просто відкрити URL)', 'run', () => runPage(page.id), busy));
+        phead.appendChild(mkOp('✎', 'Перейменувати / змінити URL', '', () => editPage(page), busy));
+        phead.appendChild(mkOp('✕', 'Видалити сторінку', '', () => { pages = pages.filter(x => x.id !== page.id); renderPages(); removePage(page.id); }, busy));
+        pbox.appendChild(phead);
+
+        const urlDiv = document.createElement('div');
+        urlDiv.className = 'page-url';
+        urlDiv.textContent = '🔗 ' + page.url;
+        pbox.appendChild(urlDiv);
+
+        if (page.expanded) {
+          page.recs.forEach((rec) => pbox.appendChild(renderRec(page, rec, busy)));
+          const bar = document.createElement('div');
+          bar.className = 'rec-bar2';
+          const isHere = recording && curPage === page;
+          const b = document.createElement('button');
+          b.className = 'rec-add' + (isHere ? ' on' : '');
+          b.textContent = isHere ? '⏹ Зупинити запис' : '⏺ Запис нової Дії';
+          b.disabled = running || (recording && !isHere);
+          b.addEventListener('click', () => (isHere ? stopRec() : startRecInPage(page)));
+          bar.appendChild(b);
+          pbox.appendChild(bar);
+        }
+        pagesEl.appendChild(pbox);
+      });
+    }
+
+    function renderRec(page, rec, busy) {
+      const box = document.createElement('div');
+      box.className = 'rec' + (rec.isRecording ? ' rec-on' : '') + (rec.running ? ' rec-run' : '');
+      const head = document.createElement('div');
+      head.className = 'rec-head';
+      head.innerHTML =
+        '<button class="tg">' + (rec.expanded ? '▾' : '▸') + '</button>' +
+        '<span class="name">' + escapeHtml(rec.name) + '</span>' +
+        '<span class="meta">' + rec.subs.length + ' під-дій</span>';
+      head.querySelector('.tg').addEventListener('click', () => { rec.expanded = !rec.expanded; renderPages(); });
+      head.querySelector('.name').addEventListener('click', () => { rec.expanded = !rec.expanded; renderPages(); });
+      head.appendChild(mkOp('▶', 'Виконати до цієї Дії включно', 'run', () => runPage(page.id, rec.id), busy || !rec.subs.length));
+      head.appendChild(mkOp('📎', 'Додати файл для завантаження', '', () => addFileToRec(page, rec), busy));
+      head.appendChild(mkOp('✎', 'Перейменувати', '', () => { const v = prompt('Назва Дії:', rec.name); if (v) { rec.name = v; renderPages(); persistPage(page); } }, busy));
+      head.appendChild(mkOp('✕', 'Видалити Дію', '', () => { page.recs = page.recs.filter(x => x.id !== rec.id); renderPages(); persistPage(page); }, busy));
+      box.appendChild(head);
+      if (rec.expanded) {
+        const ul = document.createElement('ul');
+        ul.className = 'subs';
+        if (!rec.subs.length) ul.innerHTML = '<li class="empty">порожньо</li>';
+        else rec.subs.forEach((a, i) => {
+          const li = document.createElement('li');
+          if (a.status) li.className = a.status;
+          li.innerHTML =
+            '<span class="n">' + (i + 1) + '</span>' +
+            '<span class="desc">' + escapeHtml(subLabel(a)) + '</span>' +
+            '<span class="badge">' + badge(a.status) + '</span>';
+          if (!busy) {
+            if (a.type === 'text') {
+              const mode = a.random || 'fixed';
+              const icon = mode === 'digit' ? '🎲0-9' : mode === 'letter' ? '🎲a-z' : '🔒';
+              li.appendChild(mkOp(icon, 'Режим: фікс → рандом цифра → рандом літера', '', () => {
+                a.random = a.random === 'digit' ? 'letter' : (a.random === 'letter' ? undefined : 'digit');
+                renderPages(); persistPage(page);
+              }, false));
+            }
+            li.appendChild(mkOp('✎', 'Редагувати', '', () => editSub(page, rec, i), false));
+            li.appendChild(mkOp('✕', 'Видалити', '', () => { rec.subs.splice(i, 1); renderPages(); persistPage(page); }, false));
+          }
+          ul.appendChild(li);
+        });
+        box.appendChild(ul);
+      }
+      return box;
+    }
+    function editPage(page) {
+      const name = prompt('Назва сторінки:', page.name); if (name === null) return;
+      const url = prompt('Стартовий URL сторінки:', page.url); if (url === null) return;
+      page.name = name.trim() || page.name;
+      page.url = url.trim() || page.url;
+      renderPages(); persistPage(page);
+    }
+    function mkOp(txt, title, cls, fn, disabled) {
+      const b = document.createElement('button');
+      b.className = 'op' + (cls ? ' ' + cls : ''); b.textContent = txt; b.title = title;
+      b.disabled = !!disabled;
+      if (!disabled) b.addEventListener('click', fn);
+      return b;
+    }
+    function editSub(page, rec, i) {
+      const a = rec.subs[i];
+      if (a.type === 'move' || a.type === 'click') {
+        const v = prompt('Координати x, y:', a.x + ', ' + a.y); if (!v) return;
+        const m = v.split(',').map(s => parseInt(s.trim(), 10));
+        if (m.length === 2 && !isNaN(m[0]) && !isNaN(m[1])) { a.x = m[0]; a.y = m[1]; }
+      } else if (a.type === 'text') {
+        const v = prompt('Текст:', a.text); if (v !== null) a.text = v;
+      } else if (a.type === 'key') {
+        const v = prompt('Клавіша (Enter, Tab, Space, ArrowDown…):', a.key); if (v) a.key = v;
+      }
+      renderPages(); persistPage(page);
+    }
+
+    // ---------- Запис нової Дії ----------
+    function imgCoords(e) {
+      const rect = recordImg.getBoundingClientRect();
+      const sx = recordImg.naturalWidth / rect.width;
+      const sy = recordImg.naturalHeight / rect.height;
+      return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+    }
+    function onMove(e) {
+      const now = performance.now();
+      if (now - lastMoveT < 90) return;
+      lastMoveT = now; const { x, y } = imgCoords(e); pushSub({ type: 'move', x, y });
+    }
+    function onClick(e) { const { x, y } = imgCoords(e); pushSub({ type: 'click', x, y }); }
+    function onKey(e) {
+      const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (printable) { pushSub({ type: 'text', text: e.key }); return; }
+      const nav = ['Enter','Tab','Backspace','Delete','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '];
+      if (nav.includes(e.key)) e.preventDefault();
+      pushSub({ type: 'key', key: e.key === ' ' ? 'Space' : e.key });
+    }
+    function pushSub(a) { curRec.subs.push(a); renderPages(); }
+
+    // ---------- Додавання файлу (під-дія type: 'file') ----------
+    const fileInput = document.getElementById('fileInput');
+    let fileTarget = null; // {page, rec}
+    function addFileToRec(page, rec) {
+      fileTarget = { page, rec };
+      fileInput.value = '';
+      fileInput.click();
+    }
+    fileInput.addEventListener('change', async () => {
+      const f = fileInput.files[0];
+      const tgt = fileTarget; fileTarget = null;
+      if (!f || !tgt) return;
+      const { page, rec } = tgt;
+      setLive('Завантажую файл «' + f.name + '»…', false, true);
+      try {
+        const dataUrl = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result); r.onerror = rej;
+          r.readAsDataURL(f);
+        });
+        const resp = await fetch('/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: f.name, data: dataUrl }),
+        });
+        const d = await resp.json();
+        if (!d.ok) { setLive('Помилка завантаження: ' + (d.error || ''), false); return; }
+        rec.expanded = true;
+        rec.subs.push({ type: 'file', fileId: d.fileId, filename: d.filename });
+        renderPages(); persistPage(page);
+        setLive('Файл «' + d.filename + '» додано до «' + rec.name + '».', false);
+      } catch (e) { setLive('Помилка: ' + e.message, false); }
+    });
+
+    // Запис нової Дії в конкретну сторінку (на поточному скріні)
+    function startRecInPage(page) {
+      if (!recordImg) { setLive('Спершу зроби рендер (введи URL вгорі), щоб було по чому клікати.', false); return; }
+      recording = true; curPage = page;
+      curRec = { id: ++recCounter, name: 'Дія ' + recCounter, subs: [], expanded: true, isRecording: true };
+      page.recs.push(curRec); page.expanded = true;
+      renderPages();
+      recordImg.classList.add('recording');
+      setLive('Запис «' + curRec.name + '» у «' + page.name + '»… клікай по скріну, друкуй.', false);
+      recordImg.addEventListener('mousemove', onMove);
+      recordImg.addEventListener('click', onClick);
+      document.addEventListener('keydown', onKey);
+    }
+    function stopRec() {
+      recording = false;
+      detach();
+      const page = curPage;
+      if (curRec && !curRec.subs.length) {
+        page.recs = page.recs.filter(x => x.id !== curRec.id); // порожню Дію не зберігаємо
+        setLive('Порожній запис скасовано.', false);
+      } else {
+        curRec.isRecording = false;
+        setLive('Збережено «' + curRec.name + '» (' + curRec.subs.length + ' під-дій).', false);
+        persistPage(page);
+      }
+      curRec = null; curPage = null; renderPages();
+    }
+    function detach() {
+      if (recordImg) {
+        recordImg.removeEventListener('mousemove', onMove);
+        recordImg.removeEventListener('click', onClick);
+        recordImg.classList.remove('recording');
+      }
+      document.removeEventListener('keydown', onKey);
+    }
+
+    // Створення нової сторінки
+    newPageBtn.addEventListener('click', () => {
+      if (recording || running) return;
+      const def = (screens.find(s => s.id === activeId) || {}).url || urlInput.value.trim() || '';
+      const url = prompt('Стартовий URL сторінки:', def);
+      if (url === null) return;
+      const page = { id: ++pageCounter, name: 'Сторінка ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
+      pages.push(page);
+      renderPages(); persistPage(page);
+      setLive('Створено «' + page.name + '». Зроби рендер і тисни «⏺ Запис нової Дії».', false);
+    });
+
+    // ---------- Виконання Сторінки ----------
+    // Старт сторінки: відкриваємо її стартовий URL і послідовно проганяємо під-дії
+    // всіх Дій по порядку (накопичувальний ланцюг у межах сторінки). Можна виконати
+    // і частково — до певної Дії включно (кнопка ▶ на самій Дії).
+    async function runPage(pageId, uptoRecId) {
+      if (running || recording) return;
+      const page = pages.find(p => p.id === pageId);
+      if (!page) return;
+      let recs = page.recs;
+      if (uptoRecId != null) { const idx = page.recs.findIndex(r => r.id === uptoRecId); recs = page.recs.slice(0, idx + 1); }
+
+      // Плоский список під-дій + мапа: глобальний індекс → {rec, subIndex}
+      const flat = [], map = [];
+      recs.forEach((rec) => {
+        rec.expanded = true; rec.running = true;
+        rec.subs.forEach((a, si) => { a.status = 'idle'; map.push({ rec, si }); flat.push(a); });
+      });
+      // Якщо під-дій немає — просто відкриваємо стартовий URL і робимо скриншот.
+
+      running = true; page.running = true;
+      renderPages();
+      logRunSep('Старт «' + page.name + '» — ' + recs.length + ' Дій, ' + flat.length + ' під-дій' + (flat.length ? '' : ' (лише відкриття URL)'));
+      goBtn.disabled = true;
+      setLive(flat.length ? 'Виконую «' + page.name + '»: відкриваю стартову сторінку…' : 'Відкриваю «' + page.name + '»…', true);
+
+      const ctx = { page, map, total: flat.length };
+      try {
+        const r = await fetch('/replay', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: page.url, actions: flat }),
+        });
+        const reader = r.body.getReader();
+        const dec = new TextDecoder(); let buf = '';
+        while (true) {
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+            if (line) handleEvent(ctx, JSON.parse(line));
+          }
+        }
+      } catch (err) { setLive('Помилка виконання: ' + err.message, false); }
+      finally {
+        running = false; page.running = false; recs.forEach(r => r.running = false);
+        goBtn.disabled = false;
+        renderPages();
+      }
+    }
+    function handleEvent(ctx, ev) {
+      if (ev.event === 'log') {
+        logLine(ev.kind, ev.text);
+      } else if (ev.event === 'status' || ev.event === 'opened') {
+        setLive('«' + ctx.page.name + '»: ' + (ev.text || '…'), true);
+      } else if (ev.event === 'action') {
+        const { rec, si } = ctx.map[ev.index];
+        rec.subs[si].status = 'running'; renderPages();
+        setLive('«' + rec.name + '» — крок ' + (ev.index + 1) + '/' + ctx.total + ': ' + subLabel(rec.subs[si]), true);
+      } else if (ev.event === 'done-action') {
+        const { rec, si } = ctx.map[ev.index];
+        rec.subs[si].status = ev.ok ? 'done' : 'failed'; renderPages();
+      } else if (ev.event === 'done') {
+        addScreen('🎬 ' + ctx.page.name + ' (' + ev.actionsReplayed + '/' + ev.actionsTotal + ')', ev.screenshot, ev.url);
+        setLive('«' + ctx.page.name + '» виконано ' + ev.actionsReplayed + '/' + ev.actionsTotal + ' за ' + ev.timing.totalMs + ' мс.', false);
+      } else if (ev.event === 'error') setLive('Помилка: ' + ev.message, false);
+    }
+
+    // ---------- Збереження Сторінок у БД ----------
+    function pagePayload(p) {
+      return {
+        name: p.name, url: p.url,
+        recs: p.recs.map(r => ({ id: r.id, name: r.name, subs: r.subs.map(({ status, ...a }) => a) })),
+      };
+    }
+    async function persistPage(p) {
+      try {
+        await fetch('/pages/' + p.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pagePayload(p)),
+        });
+      } catch (_e) {}
+    }
+    async function removePage(id) {
+      try { await fetch('/pages/' + id, { method: 'DELETE' }); } catch (_e) {}
+    }
+    async function loadPages() {
+      try {
+        const d = await (await fetch('/pages')).json();
+        pages = (d.pages || []).map(p => ({
+          id: Number(p.id), name: p.name, url: p.url, expanded: true,
+          recs: (p.recs || []).map(r => ({
+            id: Number(r.id), name: r.name,
+            subs: (r.subs || []).map(a => ({ ...a })), expanded: false,
+          })),
+        }));
+        pageCounter = pages.length ? Math.max(...pages.map(p => p.id)) : 0;
+        const rids = pages.flatMap(p => p.recs.map(r => r.id));
+        recCounter = rids.length ? Math.max(...rids) : 0;
+        setLive(d.db ? 'Сторінки завантажено з БД.' : 'БД не підключена — лише в пам\'яті.', false);
+      } catch (_e) { setLive('Не вдалося завантажити сторінки.', false); }
+      renderPages();
+    }
+
+    // ---------- Утиліти ----------
+    function updateRecBtn() { renderPages(); } // перемальовуємо (кнопки запису per-page)
+    function setLive(text, playing, spinning) {
+      liveEl.className = 'live' + (playing ? ' playing' : '');
+      liveEl.innerHTML = (playing || spinning ? '<span class="dot"></span>' : '') + escapeHtml(text);
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    // ---------- Профіль: fingerprint реального браузера ----------
+    const profStatus = document.getElementById('profStatus');
+
+    // index.html виконується у ТВОЄМУ справжньому Chrome → зчитуємо його реальні
+    // задекларовані параметри й шлемо на сервер, щоб кожен контекст їх підставляв.
+    function captureFingerprint() {
+      return {
+        userAgent: navigator.userAgent,
+        locale: navigator.language || (navigator.languages && navigator.languages[0]) || 'en-US',
+        languages: navigator.languages ? Array.from(navigator.languages) : undefined,
+        timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        platform: navigator.platform,
+        vendor: navigator.vendor,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory,
+        deviceScaleFactor: window.devicePixelRatio,
+        screen: { width: screen.width, height: screen.height, colorDepth: screen.colorDepth },
+      };
+    }
+    function showProfile(d) {
+      const n = d.cookiesCount != null ? d.cookiesCount : (d.cookies || 0);
+      profStatus.textContent = 'Профіль: ' + (d.hasFingerprint ? 'fingerprint ✓' : '—') + ', cookies ' + n;
+    }
+    async function syncFingerprint() {
+      try {
+        const r = await fetch('/profile', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fingerprint: captureFingerprint() }),
+        });
+        showProfile(await r.json());
+      } catch (_e) { profStatus.textContent = 'Профіль: помилка'; }
+    }
+    // ---------- Модалка-конфігуратор ----------
+    const cfgOverlay = document.getElementById('cfgOverlay');
+    const cfgBody = document.getElementById('cfgBody');
+    let cfgState = null;
+    document.getElementById('cfgBtn').addEventListener('click', openConfig);
+    document.getElementById('cfgClose').addEventListener('click', () => cfgOverlay.classList.remove('open'));
+    cfgOverlay.addEventListener('click', (e) => { if (e.target === cfgOverlay) cfgOverlay.classList.remove('open'); });
+
+    async function openConfig() {
+      cfgOverlay.classList.add('open');
+      cfgBody.textContent = 'завантаження…';
+      try { cfgState = await (await fetch('/profile')).json(); renderConfig(cfgState); }
+      catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
+    }
+    const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
+    const rowTxt = (lbl, id, v, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(v) + '">' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
+    const rowNum = (lbl, id, v, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="number" id="' + id + '" value="' + (v == null ? '' : v) + '">' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
+    const rowChk = (lbl, id, on, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '>' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
+
+    function renderConfig(d) {
+      const fp = d.fingerprint || {}, st = d.stealth || {}, L = d.launch || {}, sc = fp.screen || {};
+      cfgBody.innerHTML =
+        '<div class="cfg-sec"><h4>Запуск браузера</h4>' +
+          rowChk('🦊 рушій Camoufox (Firefox-антидетект)', 'cfgCamoufox', L.engine === 'camoufox', 'проти жорсткого Cloudflare · повільніше, важче, але ПРОХОДИТЬ · ігнорує Chromium-опції нижче · зміна = перезапуск') +
+          rowChk('headless', 'cfgHeadless', L.headless !== false, 'дефолт: true') +
+          rowChk('вимкнути ізоляцію сайтів', 'cfgSiteIso', L.siteIsolationDisabled !== false, 'дефолт Playwright: НІ · треба для iframe у скриншоті · зміна = перезапуск браузера') +
+          rowChk('stealth-plugin (playwright-extra)', 'cfgStealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів · зміна = перезапуск браузера') +
+          rowChk('persistent profile (для Cloudflare)', 'cfgPersistent', !!L.persistent, 'спільний профіль на диску: зберігає cookies/cache (cf_clearance). БЕЗ ізоляції між запитами · зміна = перезапуск') +
+        '</div>' +
+        '<div class="cfg-sec"><h4>Поведінка (при відтворенні дій)</h4>' +
+          rowChk('людські рухи миші й затримки', 'cfgHumanize', (d.behavior || {}).humanize !== false, 'криві рухи, паузи «на роздуми», друк по буквах · дефолт Playwright: миттєво') +
+        '</div>' +
+        '<div class="cfg-sec"><h4>Stealth (наші анти-детект доповнення)</h4>' +
+          rowChk('navigator.webdriver = false', 'cfgWd', st.webdriver, 'дефолт Playwright: webdriver = true') +
+          rowChk('додати window.chrome', 'cfgWc', st.windowChrome, 'дефолт: відсутній') +
+        '</div>' +
+        '<div class="cfg-sec"><h4>Fingerprint ' + (d.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '(не задано → дефолт Playwright)') + '</h4>' +
+          rowTxt('User-Agent', 'cfgUA', fp.userAgent) +
+          rowTxt('locale', 'cfgLocale', fp.locale) +
+          rowTxt('timezoneId', 'cfgTz', fp.timezoneId) +
+          rowTxt('platform', 'cfgPlatform', fp.platform) +
+          rowTxt('vendor', 'cfgVendor', fp.vendor) +
+          rowNum('hardwareConcurrency', 'cfgCores', fp.hardwareConcurrency) +
+          rowNum('deviceMemory', 'cfgMem', fp.deviceMemory) +
+          rowNum('deviceScaleFactor', 'cfgDpr', fp.deviceScaleFactor) +
+          rowNum('screen width', 'cfgScW', sc.width) +
+          rowNum('screen height', 'cfgScH', sc.height) +
+          rowNum('screen colorDepth', 'cfgScD', sc.colorDepth) +
+        '</div>' +
+        '<div class="cfg-sec"><h4>Cookies</h4>' +
+          '<div class="cfg-row"><label>підставлено</label><span>' + (d.cookiesCount || 0) + ' шт.</span>' +
+            (d.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : '') +
+          '</div></div>';
+      const cc = document.getElementById('cfgClearCk');
+      if (cc) cc.addEventListener('click', async () => {
+        await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: null }) });
+        openConfig();
+      });
+    }
+    const gv = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+    const gn = (id) => { const v = gv(id); return v === '' ? undefined : Number(v); };
+    const gc = (id) => { const e = document.getElementById(id); return e ? e.checked : false; };
+
+    document.getElementById('cfgSave').addEventListener('click', async () => {
+      const body = {
+        fingerprint: {
+          userAgent: gv('cfgUA') || undefined,
+          locale: gv('cfgLocale') || undefined,
+          languages: cfgState && cfgState.fingerprint ? cfgState.fingerprint.languages : undefined,
+          timezoneId: gv('cfgTz') || undefined,
+          platform: gv('cfgPlatform') || undefined,
+          vendor: gv('cfgVendor') || undefined,
+          hardwareConcurrency: gn('cfgCores'),
+          deviceMemory: gn('cfgMem'),
+          deviceScaleFactor: gn('cfgDpr'),
+          screen: { width: gn('cfgScW'), height: gn('cfgScH'), colorDepth: gn('cfgScD') },
+        },
+        stealth: { webdriver: gc('cfgWd'), windowChrome: gc('cfgWc') },
+        launch: { headless: gc('cfgHeadless'), siteIsolationDisabled: gc('cfgSiteIso'), stealthPlugin: gc('cfgStealthPlugin'), persistent: gc('cfgPersistent'), engine: gc('cfgCamoufox') ? 'camoufox' : 'chromium' },
+        behavior: { humanize: gc('cfgHumanize') },
+      };
+      setLive('Застосовую конфіг…', false, true);
+      const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      showProfile(d);
+      logRunSep('Конфіг оновлено' + (d.relaunched ? ' (браузер перезапущено)' : ''));
+      logLine('info', '⚙ fingerprint=' + (d.hasFingerprint ? '✓' : '—') + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', siteIsolationDisabled=' + d.launch.siteIsolationDisabled + ', headless=' + d.launch.headless);
+      setLive('Конфіг застосовано' + (d.relaunched ? ' (браузер перезапущено)' : '') + '.', false);
+      cfgOverlay.classList.remove('open');
+    });
+    document.getElementById('cfgReset').addEventListener('click', async () => {
+      const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) })).json();
+      showProfile(d);
+      logRunSep('Скинуто до дефолту Playwright' + (d.relaunched ? ' (браузер перезапущено)' : ''));
+      renderConfig(d);
+    });
+
+    // Старт: захоплюємо fingerprint і підтягуємо збережені Сторінки
+    syncFingerprint();
+    loadPages();
+  </script>
+</body>
+</html>

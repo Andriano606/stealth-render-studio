@@ -1,0 +1,19 @@
+{
+  "name": "stealth-render-studio",
+  "version": "1.0.0",
+  "description": "Headless-браузер як сервіс: рендер сторінок, запис/відтворення дій, антидетект (Chromium + Camoufox) з UI-конфігуратором",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "node scripts/patch-camoufox.mjs || true",
+    "fetch-camoufox": "camoufox-js fetch"
+  },
+  "dependencies": {
+    "camoufox-js": "^0.10.2",
+    "express": "^4.19.2",
+    "pg": "^8.23.1",
+    "playwright": "^1.63.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
