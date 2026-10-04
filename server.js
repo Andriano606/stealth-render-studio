@@ -683,9 +683,15 @@ app.post('/replay', async (req, res) => {
       await page.waitForTimeout(humanize ? rint(350, 1100) : 120);
     }
 
-    send({ event: 'status', text: 'Роблю фінальний скриншот…' });
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    // Надійно чекаємо відповідь сервера після останньої дії (напр. сабміт форми):
+    // даємо запиту стартувати → чекаємо завершення мережі → паузу на перемальовування
+    // DOM (результат з'являється вже ПІСЛЯ відповіді) → стабілізацію контенту.
+    send({ event: 'status', text: 'Чекаю відповідь сервера…' });
+    await page.waitForTimeout(700);
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1200);
     await waitForContentSettle(page);
+    send({ event: 'status', text: 'Роблю фінальний скриншот…' });
     await autoScroll(page);
     const title = await page.title();
     const screenshot = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
