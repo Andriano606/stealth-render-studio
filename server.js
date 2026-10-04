@@ -732,8 +732,21 @@ async function initDb() {
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    // Пресети конфігуратора (набори налаштувань). Зберігаються в БД.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS presets (
+        id          BIGSERIAL PRIMARY KEY,
+        name        TEXT NOT NULL,
+        body        JSONB NOT NULL DEFAULT '{}'::jsonb,
+        builtin     BOOLEAN NOT NULL DEFAULT false,
+        pos         INT NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
     db = pool;
-    console.log('Postgres підключено (' + DB_URL + '), таблиці recordings/pages готові.');
+    await seedPresets();
+    console.log('Postgres підключено (' + DB_URL + '), таблиці recordings/pages/presets готові.');
   } catch (e) {
     db = null;
     await pool.end().catch(() => {});
@@ -802,6 +815,72 @@ app.delete('/pages/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM pages WHERE id = $1', [Number(req.params.id)]);
     res.json({ ok: true, db: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+
+// --- Пресети конфігуратора (в БД) ---
+const BUILTIN_PRESETS = [
+  { name: '🛡️ All', pos: 1, body: {
+    launch: { engine: 'chromium', headless: true, newHeadless: true, automationControlled: true, realGpu: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false },
+    stealth: { webdriver: true, windowChrome: true, outerWindow: true, permissions: true, pwInitScripts: true },
+    behavior: { humanize: true },
+  } },
+  { name: '🧹 Clear all', pos: 2, body: { clear: true } },
+  { name: '☁️ Cloudflare', pos: 3, body: { launch: { engine: 'camoufox', camoufoxHumanize: false, camoufoxGeoip: false } } },
+  { name: '📋 Ashby', pos: 4, body: {
+    launch: { engine: 'chromium', headless: true, newHeadless: true, automationControlled: true, realGpu: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false },
+    stealth: { webdriver: true, windowChrome: true, outerWindow: true, permissions: true, pwInitScripts: true },
+    behavior: { humanize: true },
+  } },
+];
+async function seedPresets() {
+  if (!db) return;
+  const { rows } = await db.query('SELECT COUNT(*)::int AS n FROM presets');
+  if (rows[0].n > 0) return;
+  for (const p of BUILTIN_PRESETS) {
+    await db.query('INSERT INTO presets (name, body, builtin, pos) VALUES ($1, $2::jsonb, true, $3)', [p.name, JSON.stringify(p.body), p.pos]);
+  }
+  console.log('Вбудовані пресети засіяно.');
+}
+
+app.get('/presets', async (_req, res) => {
+  if (!db) return res.json({ ok: true, db: false, presets: [] });
+  try {
+    const { rows } = await db.query('SELECT id, name, body, builtin FROM presets ORDER BY pos ASC, id ASC');
+    res.json({ ok: true, db: true, presets: rows.map(r => ({ ...r, id: Number(r.id) })) });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.post('/presets', async (req, res) => {
+  if (!db) return res.status(503).json({ ok: false, error: 'БД недоступна' });
+  const { name, body } = req.body || {};
+  try {
+    const { rows } = await db.query(
+      'INSERT INTO presets (name, body, builtin, pos) VALUES ($1, $2::jsonb, false, 100) RETURNING id',
+      [name || 'Новий пресет', JSON.stringify(body || {})]
+    );
+    res.json({ ok: true, id: Number(rows[0].id) });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.put('/presets/:id', async (req, res) => {
+  if (!db) return res.status(503).json({ ok: false, error: 'БД недоступна' });
+  const { name, body } = req.body || {};
+  try {
+    await db.query(
+      `UPDATE presets SET
+         name = COALESCE($2, name),
+         body = COALESCE($3::jsonb, body),
+         updated_at = now()
+       WHERE id = $1`,
+      [Number(req.params.id), name ?? null, body === undefined ? null : JSON.stringify(body)]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
+});
+app.delete('/presets/:id', async (req, res) => {
+  if (!db) return res.status(503).json({ ok: false, error: 'БД недоступна' });
+  try {
+    await db.query('DELETE FROM presets WHERE id = $1 AND builtin = false', [Number(req.params.id)]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e) }); }
 });
 

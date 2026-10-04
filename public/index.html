@@ -91,6 +91,8 @@
     }
     .cfg-presets .pre-btn:hover { border-color: #4f7cff; background: #18203a; }
     .cfg-presets .pre-btn.clear { color: #aeb6c4; }
+    .cfg-presets .pre-btn.active { border-color: #4f7cff; background: #223; color: #fff; }
+    .cfg-presets .pre-btn.active.dirty { border-color: #e0a34a; color: #ffcf8f; }
 
     /* Двоколонкова розкладка: ліве меню категорій + права панель */
     .cfg-wrap { flex: 1; display: flex; min-height: 0; }
@@ -769,6 +771,7 @@
     const cfgPresets = document.getElementById('cfgPresets');
     const cfgBody = document.getElementById('cfgBody');
     let cfgState = null, draft = null, activeCat = 'engine';
+    let presets = [], activePresetId = null, presetBaseline = null; // пресети з БД + стан активного
     document.getElementById('cfgBtn').addEventListener('click', openConfig);
     document.getElementById('cfgClose').addEventListener('click', () => cfgOverlay.classList.remove('open'));
     cfgOverlay.addEventListener('click', (e) => { if (e.target === cfgOverlay) cfgOverlay.classList.remove('open'); });
@@ -781,37 +784,9 @@
       { key: 'fingerprint', label: '🧬 Fingerprint' },
       { key: 'cookies', label: '🍪 Cookies' },
     ];
-    const PRESET_LABELS = { all: '🛡️ All', clear: '🧹 Clear all', cloudflare: '☁️ Cloudflare', ashby: '📋 Ashby' };
-    const PRESETS = {
-      all: {
-        name: '🛡️ All — максимальний Chromium-стелс',
-        desc: 'УСІ опції: новий headless, AutomationControlled, реальний GPU, stealth-plugin, webdriver, window.chrome, outerWindow, permissions, pwInitScripts, вимкнена ізоляція, людська поведінка. Fingerprint — твій Chrome.',
-        body: {
-          launch: { engine: 'chromium', headless: true, newHeadless: true, automationControlled: true, realGpu: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false },
-          stealth: { webdriver: true, windowChrome: true, outerWindow: true, permissions: true, pwInitScripts: true },
-          behavior: { humanize: true },
-        },
-      },
-      clear: {
-        name: '🧹 Clear all — голий Playwright', cls: 'clear',
-        desc: 'Скидає все до дефолтного пустого Playwright: Chromium, webdriver=true, без stealth, без fingerprint, без humanize, ізоляція сайтів увімкнена.',
-        body: { clear: true },
-      },
-      cloudflare: {
-        name: '☁️ Cloudflare — пройти жорсткий челендж',
-        desc: 'КАЛІБРОВАНИЙ мінімум: лише рушій Camoufox (Firefox, без CDP). Перевірено — проходить rubyonremote навіть без humanize/geoip. Chromium Cloudflare НЕ проходить.',
-        body: { launch: { engine: 'camoufox', camoufoxHumanize: false, camoufoxGeoip: false } },
-      },
-      ashby: {
-        name: '📋 Ashby — форми заявок (iframe)',
-        desc: 'Chromium із повним стелсом + вимкнена ізоляція сайтів (щоб крос-доменний iframe Ashby рендерився у скрині) + людська поведінка. Мета — не бути поміченим анти-спамом.',
-        body: {
-          launch: { engine: 'chromium', headless: true, newHeadless: true, automationControlled: true, realGpu: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false },
-          stealth: { webdriver: true, windowChrome: true, outerWindow: true, permissions: true, pwInitScripts: true },
-          behavior: { humanize: true },
-        },
-      },
-    };
+    // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
+    const configSig = (d) => JSON.stringify({ launch: d.launch, stealth: d.stealth, behavior: d.behavior });
+    const isDirty = () => activePresetId != null && presetBaseline != null && configSig(draft) !== presetBaseline;
 
     async function openConfig() {
       cfgOverlay.classList.add('open');
@@ -819,18 +794,51 @@
       try {
         cfgState = await (await fetch('/profile')).json();
         draft = makeDraft(cfgState);
+        await loadPresets();
+        // відновлюємо активний пресет із localStorage (вважаємо чистим на відкритті)
+        const saved = Number(localStorage.getItem('activePresetId')) || null;
+        activePresetId = presets.some(p => p.id === saved) ? saved : null;
+        presetBaseline = activePresetId ? configSig(draft) : null;
         renderPresets(); renderNav(); renderCategory();
       } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
     }
+    async function loadPresets() {
+      try { const d = await (await fetch('/presets')).json(); presets = d.presets || []; }
+      catch (_e) { presets = []; }
+    }
     function renderPresets() {
       cfgPresets.innerHTML = '<span class="pre-label">Пресети:</span>';
-      for (const key of ['all', 'clear', 'cloudflare', 'ashby']) {
+      const dirty = isDirty();
+      presets.forEach((p) => {
         const btn = document.createElement('button');
-        btn.className = 'pre-btn' + (key === 'clear' ? ' clear' : '');
-        btn.textContent = PRESET_LABELS[key];
-        btn.title = PRESETS[key].desc;
-        btn.addEventListener('click', () => applyPreset(key));
+        const active = p.id === activePresetId;
+        btn.className = 'pre-btn' + (p.body && p.body.clear ? ' clear' : '') + (active ? ' active' : '') + (active && dirty ? ' dirty' : '');
+        btn.textContent = p.name + (active && dirty ? ' ●' : '');
+        if (!p.builtin) btn.title = '(кастомний) ' + p.name;
+        btn.addEventListener('click', () => applyPreset(p));
         cfgPresets.appendChild(btn);
+      });
+      // Кнопки збереження — коли відхилились від активного пресета.
+      if (dirty) {
+        const active = presets.find(p => p.id === activePresetId);
+        const spacer = document.createElement('span'); spacer.style.flex = '1'; cfgPresets.appendChild(spacer);
+        if (active && !active.builtin) {
+          const save = document.createElement('button');
+          save.className = 'pre-btn'; save.style.borderColor = '#2e7d32'; save.style.color = '#7ddba1';
+          save.textContent = '💾 Зберегти в «' + active.name + '»';
+          save.addEventListener('click', () => savePreset(active));
+          cfgPresets.appendChild(save);
+        } else if (active) {
+          // вбудований не чіпаємо — лише натяк
+          const note = document.createElement('span'); note.className = 'pre-label';
+          note.textContent = '(вбудований — лише «Новий пресет»)';
+          cfgPresets.appendChild(note);
+        }
+        const neu = document.createElement('button');
+        neu.className = 'pre-btn'; neu.style.borderColor = '#4f7cff';
+        neu.textContent = '➕ Новий пресет';
+        neu.addEventListener('click', createPreset);
+        cfgPresets.appendChild(neu);
       }
     }
     function makeDraft(d) {
@@ -943,6 +951,7 @@
       else val = e.target.value; // text і radio (у radio value = рядок рушія)
       setPath(draft, p, val);
       if (p === 'launch.engine') renderCategory(); // підсвітити вибраний варіант
+      renderPresets(); // оновити стан активного пресета (dirty + кнопки збереження)
     });
     function setPath(obj, path, val) {
       const parts = path.split('.'); let o = obj;
@@ -954,22 +963,47 @@
       setLive((note || 'Застосовую конфіг') + '…', false, true);
       const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
       showProfile(d);
-      cfgState = d; draft = makeDraft(d); renderNav(); renderCategory();
+      cfgState = d; draft = makeDraft(d); renderNav(); renderCategory(); renderPresets();
       logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
       logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', siteIso=' + d.launch.siteIsolationDisabled + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
       setLive((note || 'Конфіг') + ' застосовано' + (d.relaunched ? ' (перезапуск)' : '') + '.', false);
       return d;
     }
-    async function applyPreset(key) {
-      const p = PRESETS[key]; if (!p) return;
+    async function applyPreset(p) {
+      if (!p) return;
       await applyProfile(p.body, 'Пресет «' + p.name + '»');
+      activePresetId = p.id || null;
+      if (p.id) localStorage.setItem('activePresetId', String(p.id)); else localStorage.removeItem('activePresetId');
+      presetBaseline = configSig(draft);
+      renderPresets();
+    }
+    async function savePreset(p) {
+      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior };
+      await fetch('/presets/' + p.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
+      await loadPresets();
+      presetBaseline = configSig(draft); // тепер чисто
+      renderPresets();
+      setLive('Збережено в пресет «' + p.name + '».', false);
+    }
+    async function createPreset() {
+      const name = prompt('Назва нового пресета:', '⭐ Мій пресет');
+      if (!name) return;
+      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior };
+      const r = await (await fetch('/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, body }) })).json();
+      await loadPresets();
+      if (r.id) { activePresetId = r.id; localStorage.setItem('activePresetId', String(r.id)); presetBaseline = configSig(draft); }
+      renderPresets();
+      setLive('Створено пресет «' + name + '».', false);
     }
 
     document.getElementById('cfgSave').addEventListener('click', async () => {
       await applyProfile({ launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint }, 'Конфіг');
       cfgOverlay.classList.remove('open');
     });
-    document.getElementById('cfgReset').addEventListener('click', () => applyPreset('clear'));
+    document.getElementById('cfgReset').addEventListener('click', () => {
+      const clear = presets.find(p => p.body && p.body.clear);
+      if (clear) applyPreset(clear); else applyProfile({ clear: true }, 'Скинуто');
+    });
 
     // Старт: захоплюємо fingerprint і підтягуємо збережені Сторінки
     syncFingerprint();
