@@ -485,6 +485,28 @@ async function waitForContentSettle(page, maxMs = 9000) {
   }
 }
 
+// Текст з УСІХ фреймів (головного + iframe) — для детекції появи результату сабміту.
+async function allFramesText(page) {
+  let t = '';
+  for (const f of page.frames()) {
+    t += await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+  }
+  return t;
+}
+// Чекає, доки контент (у будь-якому фреймі) зміниться відносно `before` — тобто
+// з'явиться результат сабміту (напр. «Application received» у формі Ashby).
+async function waitForResultChange(page, before, maxMs = 9000) {
+  const start = Date.now();
+  const norm = (s) => s.replace(/\s+/g, '');
+  const b = norm(before);
+  while (Date.now() - start < maxMs) {
+    const now = norm(await allFramesText(page));
+    if (now !== b && Math.abs(now.length - b.length) >= 5) return true;
+    await page.waitForTimeout(400);
+  }
+  return false;
+}
+
 async function autoScroll(page) {
   try {
     await page.evaluate(async () => {
@@ -683,13 +705,16 @@ app.post('/replay', async (req, res) => {
       await page.waitForTimeout(humanize ? rint(350, 1100) : 120);
     }
 
-    // Надійно чекаємо відповідь сервера після останньої дії (напр. сабміт форми):
-    // даємо запиту стартувати → чекаємо завершення мережі → паузу на перемальовування
-    // DOM (результат з'являється вже ПІСЛЯ відповіді) → стабілізацію контенту.
+    // Надійно чекаємо відповідь сервера після останньої дії (напр. сабміт форми).
+    // Важливо: сабміт часто йде з IFRAME (напр. форма Ashby), тож чекаємо
+    // networkidle УСІХ фреймів, а не лише головного, і додатково — доки реально
+    // з'явиться/зміниться контент результату.
+    const beforeText = await allFramesText(page);
     send({ event: 'status', text: 'Чекаю відповідь сервера…' });
-    await page.waitForTimeout(700);
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(500);
+    await Promise.all(page.frames().map(f => f.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})));
+    await waitForResultChange(page, beforeText, 9000); // чекаємо появу результату
+    await page.waitForTimeout(500);
     await waitForContentSettle(page);
     send({ event: 'status', text: 'Роблю фінальний скриншот…' });
     await autoScroll(page);
