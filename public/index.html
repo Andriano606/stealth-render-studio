@@ -793,7 +793,7 @@
       { key: 'cookies', label: '🍪 Cookies' },
     ];
     // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
-    const configSig = (d) => JSON.stringify({ launch: d.launch, stealth: d.stealth, behavior: d.behavior });
+    const configSig = (d) => JSON.stringify({ launch: d.launch, stealth: d.stealth, behavior: d.behavior, fingerprint: d.fingerprint });
     const isDirty = () => activePresetId != null && presetBaseline != null && configSig(draft) !== presetBaseline;
 
     async function openConfig() {
@@ -980,7 +980,7 @@
       renderPresets();
     }
     async function savePreset(p) {
-      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior };
+      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint };
       await fetch('/presets/' + p.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
       await loadPresets();
       presetBaseline = configSig(draft); // тепер чисто
@@ -990,7 +990,7 @@
     async function createPreset() {
       const name = prompt('Назва нового пресета:', '⭐ Мій пресет');
       if (!name) return;
-      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior };
+      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint };
       const r = await (await fetch('/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, body }) })).json();
       await loadPresets();
       if (r.id) { activePresetId = r.id; localStorage.setItem('activePresetId', String(r.id)); presetBaseline = configSig(draft); }
