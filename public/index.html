@@ -76,21 +76,41 @@
     /* Модалка-конфігуратор */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 100; }
     .overlay.open { display: flex; }
-    .modal { width: 640px; max-width: 94vw; max-height: 88vh; background: #151821; border: 1px solid #2c3140; border-radius: 14px; display: flex; flex-direction: column; }
-    .modal-head, .modal-foot { display: flex; align-items: center; gap: 10px; padding: 14px 18px; }
+    .modal { width: 820px; max-width: 96vw; height: 86vh; background: #151821; border: 1px solid #2c3140; border-radius: 14px; display: flex; flex-direction: column; }
+    .modal-head, .modal-foot { display: flex; align-items: center; gap: 10px; padding: 14px 18px; flex-shrink: 0; }
     .modal-head { border-bottom: 1px solid #242833; }
     .modal-foot { border-top: 1px solid #242833; }
-    .modal-body { padding: 16px 18px; overflow-y: auto; }
     .modal .x { background: none; border: none; color: #8b94a3; font-size: 18px; cursor: pointer; }
-    .cfg-sec { margin-bottom: 18px; }
-    .cfg-sec h4 { margin: 0 0 8px; font-size: 13px; color: #8b94a3; text-transform: uppercase; letter-spacing: .5px; }
-    .cfg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; font-size: 13px; }
-    .cfg-row label { width: 170px; color: #aeb6c4; flex-shrink: 0; }
+
+    /* Двоколонкова розкладка: ліве меню категорій + права панель */
+    .cfg-wrap { flex: 1; display: flex; min-height: 0; }
+    .cfg-nav { width: 190px; flex-shrink: 0; border-right: 1px solid #242833; padding: 10px 8px; overflow-y: auto; background: #12141b; }
+    .cfg-nav .nav-item {
+      display: flex; align-items: center; gap: 8px; padding: 9px 11px; margin-bottom: 3px; border-radius: 8px;
+      font-size: 13px; color: #aeb6c4; cursor: pointer;
+    }
+    .cfg-nav .nav-item:hover { background: #1b2130; }
+    .cfg-nav .nav-item.active { background: #223; color: #fff; border: 1px solid #4f7cff; }
+    .cfg-main { flex: 1; padding: 18px 20px; overflow-y: auto; }
+    .cfg-main h3 { margin: 0 0 4px; font-size: 16px; }
+    .cfg-main .cat-desc { font-size: 12.5px; color: #8b94a3; margin-bottom: 16px; line-height: 1.5; }
+
+    .cfg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; }
+    .cfg-row label { width: 180px; color: #aeb6c4; flex-shrink: 0; }
     .cfg-row input[type=text], .cfg-row input[type=number] {
       flex: 1; padding: 7px 9px; background: #0f1115; border: 1px solid #2c3140; border-radius: 7px; color: #e6e8ee; font-size: 13px;
     }
-    .cfg-row.changed input { border-color: #4f7cff; }
+    .cfg-row .def { font-size: 11px; color: #5c6575; flex: 1; }
     .cfg-badge { font-size: 11px; color: #7ddba1; }
+
+    /* Пресети */
+    .preset { border: 1px solid #2c3140; border-radius: 11px; padding: 14px; margin-bottom: 10px; background: #11141c; }
+    .preset .p-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .preset .p-name { font-size: 14px; font-weight: 700; flex: 1; }
+    .preset .p-desc { font-size: 12.5px; color: #8b94a3; line-height: 1.5; }
+    .preset .p-apply { padding: 7px 14px; background: #4f7cff; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
+    .preset.clear .p-apply { background: #2a2f3a; border: 1px solid #3a4152; color: #aeb6c4; }
+
     .btn-primary { padding: 9px 16px; background: #4f7cff; color: #fff; border: none; border-radius: 9px; font-weight: 600; cursor: pointer; }
     .btn-ghost { padding: 9px 14px; background: #2a2f3a; color: #aeb6c4; border: 1px solid #3a4152; border-radius: 9px; cursor: pointer; }
 
@@ -178,13 +198,16 @@
   <div class="overlay" id="cfgOverlay">
     <div class="modal">
       <div class="modal-head">
-        <b>⚙ Конфігуратор контексту Playwright</b>
+        <b>⚙ Конфігуратор</b>
         <span style="flex:1"></span>
         <button id="cfgClose" class="x">✕</button>
       </div>
-      <div class="modal-body" id="cfgBody">завантаження…</div>
+      <div class="cfg-wrap">
+        <div class="cfg-nav" id="cfgNav"></div>
+        <div class="cfg-main" id="cfgBody">завантаження…</div>
+      </div>
       <div class="modal-foot">
-        <button id="cfgReset" class="btn-ghost">↺ Скинути до дефолту Playwright</button>
+        <button id="cfgReset" class="btn-ghost">🧹 Скинути до голого Playwright</button>
         <span style="flex:1"></span>
         <button id="cfgSave" class="btn-primary">Зберегти й застосувати</button>
       </div>
@@ -709,99 +732,166 @@
     }
     // ---------- Модалка-конфігуратор ----------
     const cfgOverlay = document.getElementById('cfgOverlay');
+    const cfgNav = document.getElementById('cfgNav');
     const cfgBody = document.getElementById('cfgBody');
-    let cfgState = null;
+    let cfgState = null, draft = null, activeCat = 'preset';
     document.getElementById('cfgBtn').addEventListener('click', openConfig);
     document.getElementById('cfgClose').addEventListener('click', () => cfgOverlay.classList.remove('open'));
     cfgOverlay.addEventListener('click', (e) => { if (e.target === cfgOverlay) cfgOverlay.classList.remove('open'); });
 
+    const CATS = [
+      { key: 'preset', label: '⭐ Пресети' },
+      { key: 'engine', label: '🧩 Рушій' },
+      { key: 'launch', label: '🚀 Запуск' },
+      { key: 'stealth', label: '🕵️ Stealth' },
+      { key: 'behavior', label: '🧍 Поведінка' },
+      { key: 'fingerprint', label: '🧬 Fingerprint' },
+      { key: 'cookies', label: '🍪 Cookies' },
+    ];
+    const PRESETS = {
+      all: {
+        name: '🛡️ All — максимальний Chromium-стелс',
+        desc: 'Усі Chromium-опції разом: stealth-plugin, webdriver=false, window.chrome, людська поведінка, вимкнена ізоляція сайтів. Fingerprint — твій захоплений Chrome.',
+        body: { launch: { engine: 'chromium', headless: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false }, stealth: { webdriver: true, windowChrome: true }, behavior: { humanize: true } },
+      },
+      clear: {
+        name: '🧹 Clear all — голий Playwright', cls: 'clear',
+        desc: 'Скидає все до дефолтного пустого Playwright: Chromium, webdriver=true, без stealth, без fingerprint, без humanize, ізоляція сайтів увімкнена.',
+        body: { clear: true },
+      },
+      cloudflare: {
+        name: '☁️ Cloudflare — пройти жорсткий челендж',
+        desc: 'Мінімум для Cloudflare: рушій Camoufox (Firefox, без CDP) + людська поведінка. Chromium Cloudflare НЕ проходить. Повільніше, але працює.',
+        body: { launch: { engine: 'camoufox', headless: true }, behavior: { humanize: true } },
+      },
+      ashby: {
+        name: '📋 Ashby — форми заявок (iframe)',
+        desc: 'Для Ashby (форма в крос-доменному iframe, без бот-челенджу): Chromium + вимкнена ізоляція сайтів (щоб iframe рендерився у скрині) + stealth + humanize.',
+        body: { launch: { engine: 'chromium', headless: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false }, stealth: { webdriver: true, windowChrome: true }, behavior: { humanize: true } },
+      },
+    };
+
     async function openConfig() {
       cfgOverlay.classList.add('open');
-      cfgBody.textContent = 'завантаження…';
-      try { cfgState = await (await fetch('/profile')).json(); renderConfig(cfgState); }
-      catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
+      cfgNav.innerHTML = ''; cfgBody.textContent = 'завантаження…';
+      try {
+        cfgState = await (await fetch('/profile')).json();
+        draft = makeDraft(cfgState);
+        renderNav(); renderCategory();
+      } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
     }
-    const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
-    const rowTxt = (lbl, id, v, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(v) + '">' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
-    const rowNum = (lbl, id, v, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="number" id="' + id + '" value="' + (v == null ? '' : v) + '">' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
-    const rowChk = (lbl, id, on, hint) => '<div class="cfg-row"><label>' + lbl + '</label><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '>' + (hint ? '<span class="def">' + hint + '</span>' : '') + '</div>';
-
-    function renderConfig(d) {
-      const fp = d.fingerprint || {}, st = d.stealth || {}, L = d.launch || {}, sc = fp.screen || {};
-      cfgBody.innerHTML =
-        '<div class="cfg-sec"><h4>Запуск браузера</h4>' +
-          rowChk('🦊 рушій Camoufox (Firefox-антидетект)', 'cfgCamoufox', L.engine === 'camoufox', 'проти жорсткого Cloudflare · повільніше, важче, але ПРОХОДИТЬ · ігнорує Chromium-опції нижче · зміна = перезапуск') +
-          rowChk('headless', 'cfgHeadless', L.headless !== false, 'дефолт: true') +
-          rowChk('вимкнути ізоляцію сайтів', 'cfgSiteIso', L.siteIsolationDisabled !== false, 'дефолт Playwright: НІ · треба для iframe у скриншоті · зміна = перезапуск браузера') +
-          rowChk('stealth-plugin (playwright-extra)', 'cfgStealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів · зміна = перезапуск браузера') +
-          rowChk('persistent profile (для Cloudflare)', 'cfgPersistent', !!L.persistent, 'спільний профіль на диску: зберігає cookies/cache (cf_clearance). БЕЗ ізоляції між запитами · зміна = перезапуск') +
-        '</div>' +
-        '<div class="cfg-sec"><h4>Поведінка (при відтворенні дій)</h4>' +
-          rowChk('людські рухи миші й затримки', 'cfgHumanize', (d.behavior || {}).humanize !== false, 'криві рухи, паузи «на роздуми», друк по буквах · дефолт Playwright: миттєво') +
-        '</div>' +
-        '<div class="cfg-sec"><h4>Stealth (наші анти-детект доповнення)</h4>' +
-          rowChk('navigator.webdriver = false', 'cfgWd', st.webdriver, 'дефолт Playwright: webdriver = true') +
-          rowChk('додати window.chrome', 'cfgWc', st.windowChrome, 'дефолт: відсутній') +
-        '</div>' +
-        '<div class="cfg-sec"><h4>Fingerprint ' + (d.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '(не задано → дефолт Playwright)') + '</h4>' +
-          rowTxt('User-Agent', 'cfgUA', fp.userAgent) +
-          rowTxt('locale', 'cfgLocale', fp.locale) +
-          rowTxt('timezoneId', 'cfgTz', fp.timezoneId) +
-          rowTxt('platform', 'cfgPlatform', fp.platform) +
-          rowTxt('vendor', 'cfgVendor', fp.vendor) +
-          rowNum('hardwareConcurrency', 'cfgCores', fp.hardwareConcurrency) +
-          rowNum('deviceMemory', 'cfgMem', fp.deviceMemory) +
-          rowNum('deviceScaleFactor', 'cfgDpr', fp.deviceScaleFactor) +
-          rowNum('screen width', 'cfgScW', sc.width) +
-          rowNum('screen height', 'cfgScH', sc.height) +
-          rowNum('screen colorDepth', 'cfgScD', sc.colorDepth) +
-        '</div>' +
-        '<div class="cfg-sec"><h4>Cookies</h4>' +
-          '<div class="cfg-row"><label>підставлено</label><span>' + (d.cookiesCount || 0) + ' шт.</span>' +
-            (d.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : '') +
-          '</div></div>';
-      const cc = document.getElementById('cfgClearCk');
-      if (cc) cc.addEventListener('click', async () => {
-        await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: null }) });
-        openConfig();
+    function makeDraft(d) {
+      return {
+        launch: Object.assign({ engine: 'chromium', headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false }, d.launch || {}),
+        stealth: Object.assign({ webdriver: false, windowChrome: false }, d.stealth || {}),
+        behavior: Object.assign({ humanize: false }, d.behavior || {}),
+        fingerprint: d.fingerprint ? JSON.parse(JSON.stringify(d.fingerprint)) : null,
+        cookiesCount: d.cookiesCount || 0,
+        hasFingerprint: !!d.fingerprint,
+      };
+    }
+    function renderNav() {
+      cfgNav.innerHTML = '';
+      CATS.forEach(c => {
+        const el = document.createElement('div');
+        el.className = 'nav-item' + (c.key === activeCat ? ' active' : '');
+        el.textContent = c.label;
+        el.addEventListener('click', () => { activeCat = c.key; renderNav(); renderCategory(); });
+        cfgNav.appendChild(el);
       });
     }
-    const gv = (id) => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
-    const gn = (id) => { const v = gv(id); return v === '' ? undefined : Number(v); };
-    const gc = (id) => { const e = document.getElementById(id); return e ? e.checked : false; };
+    const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
+    const chk = (lbl, path, on, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="checkbox" data-p="${path}" ${on ? 'checked' : ''}>${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
+    const txt = (lbl, path, v, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="text" data-p="${path}" value="${esc(v)}">${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
+    const num = (lbl, path, v, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="number" data-p="${path}" value="${v == null ? '' : v}">${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
 
-    document.getElementById('cfgSave').addEventListener('click', async () => {
-      const body = {
-        fingerprint: {
-          userAgent: gv('cfgUA') || undefined,
-          locale: gv('cfgLocale') || undefined,
-          languages: cfgState && cfgState.fingerprint ? cfgState.fingerprint.languages : undefined,
-          timezoneId: gv('cfgTz') || undefined,
-          platform: gv('cfgPlatform') || undefined,
-          vendor: gv('cfgVendor') || undefined,
-          hardwareConcurrency: gn('cfgCores'),
-          deviceMemory: gn('cfgMem'),
-          deviceScaleFactor: gn('cfgDpr'),
-          screen: { width: gn('cfgScW'), height: gn('cfgScH'), colorDepth: gn('cfgScD') },
-        },
-        stealth: { webdriver: gc('cfgWd'), windowChrome: gc('cfgWc') },
-        launch: { headless: gc('cfgHeadless'), siteIsolationDisabled: gc('cfgSiteIso'), stealthPlugin: gc('cfgStealthPlugin'), persistent: gc('cfgPersistent'), engine: gc('cfgCamoufox') ? 'camoufox' : 'chromium' },
-        behavior: { humanize: gc('cfgHumanize') },
-      };
-      setLive('Застосовую конфіг…', false, true);
+    function renderCategory() {
+      const L = draft.launch, st = draft.stealth, b = draft.behavior, fp = draft.fingerprint || {}, sc = fp.screen || {};
+      let html = '';
+      if (activeCat === 'preset') {
+        html = '<h3>Пресети</h3><div class="cat-desc">Один клік — застосувати набір налаштувань (одразу, з перезапуском браузера за потреби).</div>';
+        for (const key of ['all', 'clear', 'cloudflare', 'ashby']) {
+          const p = PRESETS[key];
+          html += `<div class="preset ${p.cls || ''}"><div class="p-top"><span class="p-name">${p.name}</span><button class="p-apply" data-preset="${key}">Застосувати</button></div><div class="p-desc">${p.desc}</div></div>`;
+        }
+      } else if (activeCat === 'engine') {
+        html = '<h3>Рушій</h3><div class="cat-desc">Chromium — швидко, для звичайних сайтів. Camoufox (Firefox-антидетект) — повільніше, але проходить жорсткий Cloudflare. Зміна = перезапуск браузера.</div>';
+        html += chk('🦊 рушій Camoufox', 'launch.engine', L.engine === 'camoufox', 'Firefox без CDP + fingerprint у C++. Ігнорує Chromium-опції.');
+      } else if (activeCat === 'launch') {
+        html = '<h3>Запуск браузера</h3><div class="cat-desc">Параметри рівня запуску (Chromium). Зміна більшості = перезапуск браузера.</div>';
+        html += chk('headless', 'launch.headless', L.headless !== false, 'дефолт: true (новий headless)');
+        html += chk('вимкнути ізоляцію сайтів', 'launch.siteIsolationDisabled', L.siteIsolationDisabled !== false, 'треба для крос-доменних iframe у скрині (Ashby). Дефолт Playwright: НІ.');
+        html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
+        html += chk('persistent profile', 'launch.persistent', !!L.persistent, 'спільний профіль на диску (cookies/cache, cf_clearance). БЕЗ ізоляції між запитами.');
+      } else if (activeCat === 'stealth') {
+        html = '<h3>Stealth (JS-доповнення)</h3><div class="cat-desc">Наші ручні правки на рівні сторінки (Chromium).</div>';
+        html += chk('navigator.webdriver = false', 'stealth.webdriver', st.webdriver, 'на прототипі (не own-property). Дефолт Playwright: true.');
+        html += chk('додати window.chrome', 'stealth.windowChrome', st.windowChrome, 'runtime/loadTimes/csi/app. Дефолт: відсутній у headless.');
+      } else if (activeCat === 'behavior') {
+        html = '<h3>Поведінка при відтворенні</h3><div class="cat-desc">Як виконуються записані дії.</div>';
+        html += chk('людські рухи миші й затримки', 'behavior.humanize', b.humanize !== false, 'криві рухи, паузи «на роздуми», друк по буквах, скроли. Дефолт: миттєво.');
+      } else if (activeCat === 'fingerprint') {
+        html = '<h3>Fingerprint ' + (draft.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '<span class="def">(не задано)</span>') + '</h3><div class="cat-desc">Задекларовані параметри браузера (Chromium-режим). Camoufox має власний.</div>';
+        html += txt('User-Agent', 'fingerprint.userAgent', fp.userAgent);
+        html += txt('locale', 'fingerprint.locale', fp.locale);
+        html += txt('timezoneId', 'fingerprint.timezoneId', fp.timezoneId);
+        html += txt('platform', 'fingerprint.platform', fp.platform);
+        html += txt('vendor', 'fingerprint.vendor', fp.vendor);
+        html += num('hardwareConcurrency', 'fingerprint.hardwareConcurrency', fp.hardwareConcurrency);
+        html += num('deviceMemory', 'fingerprint.deviceMemory', fp.deviceMemory);
+        html += num('deviceScaleFactor', 'fingerprint.deviceScaleFactor', fp.deviceScaleFactor);
+        html += num('screen width', 'fingerprint.screen.width', sc.width);
+        html += num('screen height', 'fingerprint.screen.height', sc.height);
+        html += num('screen colorDepth', 'fingerprint.screen.colorDepth', sc.colorDepth);
+      } else if (activeCat === 'cookies') {
+        html = '<h3>Cookies</h3><div class="cat-desc">Підставлені cookies/storageState (Chromium).</div>';
+        html += `<div class="cfg-row"><label>підставлено</label><span>${draft.cookiesCount || 0} шт.</span>${draft.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : ''}</div>`;
+      }
+      cfgBody.innerHTML = html;
+      cfgBody.querySelectorAll('[data-preset]').forEach(bn => bn.addEventListener('click', () => applyPreset(bn.dataset.preset)));
+      const cc = document.getElementById('cfgClearCk');
+      if (cc) cc.addEventListener('click', async () => {
+        const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: null }) })).json();
+        draft.cookiesCount = 0; showProfile(d); renderCategory();
+      });
+    }
+
+    // Живе оновлення draft при зміні будь-якого поля (делегування на cfgBody).
+    cfgBody.addEventListener('input', (e) => {
+      const p = e.target.dataset.p; if (!p) return;
+      let val;
+      if (e.target.type === 'checkbox') val = e.target.checked;
+      else if (e.target.type === 'number') { const v = e.target.value.trim(); val = v === '' ? undefined : Number(v); }
+      else val = e.target.value;
+      if (p === 'launch.engine') val = e.target.checked ? 'camoufox' : 'chromium'; // чекбокс → рядок
+      setPath(draft, p, val);
+    });
+    function setPath(obj, path, val) {
+      const parts = path.split('.'); let o = obj;
+      for (let i = 0; i < parts.length - 1; i++) { if (!o[parts[i]] || typeof o[parts[i]] !== 'object') o[parts[i]] = {}; o = o[parts[i]]; }
+      o[parts[parts.length - 1]] = val;
+    }
+
+    async function applyProfile(body, note) {
+      setLive((note || 'Застосовую конфіг') + '…', false, true);
       const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
       showProfile(d);
-      logRunSep('Конфіг оновлено' + (d.relaunched ? ' (браузер перезапущено)' : ''));
-      logLine('info', '⚙ fingerprint=' + (d.hasFingerprint ? '✓' : '—') + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', siteIsolationDisabled=' + d.launch.siteIsolationDisabled + ', headless=' + d.launch.headless);
-      setLive('Конфіг застосовано' + (d.relaunched ? ' (браузер перезапущено)' : '') + '.', false);
+      cfgState = d; draft = makeDraft(d); renderNav(); renderCategory();
+      logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
+      logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', siteIso=' + d.launch.siteIsolationDisabled + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
+      setLive((note || 'Конфіг') + ' застосовано' + (d.relaunched ? ' (перезапуск)' : '') + '.', false);
+      return d;
+    }
+    async function applyPreset(key) {
+      const p = PRESETS[key]; if (!p) return;
+      await applyProfile(p.body, 'Пресет «' + p.name + '»');
+    }
+
+    document.getElementById('cfgSave').addEventListener('click', async () => {
+      await applyProfile({ launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint }, 'Конфіг');
       cfgOverlay.classList.remove('open');
     });
-    document.getElementById('cfgReset').addEventListener('click', async () => {
-      const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) })).json();
-      showProfile(d);
-      logRunSep('Скинуто до дефолту Playwright' + (d.relaunched ? ' (браузер перезапущено)' : ''));
-      renderConfig(d);
-    });
+    document.getElementById('cfgReset').addEventListener('click', () => applyPreset('clear'));
 
     // Старт: захоплюємо fingerprint і підтягуємо збережені Сторінки
     syncFingerprint();
