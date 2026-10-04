@@ -47,11 +47,8 @@
       flex: 1; overflow: auto; padding: 16px; display: flex; justify-content: center;
       align-items: flex-start; background: #0b0d12; min-height: 0;
     }
-    /* За замовчуванням — повна ширина з вертикальною прокруткою (читабельно). */
+    /* Завжди повна (реальна) ширина з вертикальною прокруткою. */
     .viewer img { max-width: 100%; border-radius: 10px; border: 1px solid #242833; }
-    /* Режим "вся сторінка": вписуємо весь скриншот у зону по висоті (без прокрутки). */
-    .viewer.fit { align-items: center; }
-    .viewer.fit img { max-height: 100%; }
     .viewer img.recording { cursor: crosshair; outline: 2px solid #ff5a5a; }
     .viewer .placeholder { color: #5c6575; font-size: 15px; margin-top: 40px; }
 
@@ -209,7 +206,6 @@
   <header>
     <input type="text" id="url" placeholder="Введи URL, напр. preply.com" value="https://example.com" autocomplete="off" />
     <button id="go" type="button">Підтвердити</button>
-    <button id="fitBtn" type="button" title="Перемкнути режим перегляду" style="background:#2a2f3a;color:#aeb6c4;">↔ Реальна ширина</button>
     <button id="cfgBtn" type="button" title="Конфігуратор контексту" style="background:#2a2f3a;color:#aeb6c4;">⚙ Конфігуратор</button>
   </header>
 
@@ -352,13 +348,6 @@
     }
     goBtn.addEventListener('click', render);
     urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') render(); });
-
-    // Перемикач режиму перегляду: повна ширина (скрол) ↔ вся сторінка (вписана)
-    const fitBtn = document.getElementById('fitBtn');
-    fitBtn.addEventListener('click', () => {
-      const fit = viewerEl.classList.toggle('fit');
-      fitBtn.textContent = fit ? '🔳 Вся сторінка' : '↔ Реальна ширина';
-    });
 
     // ---------- Лог-консоль ----------
     const consoleEl = document.getElementById('console');
