@@ -837,6 +837,8 @@
 
     function renderCategory() {
       const L = draft.launch, st = draft.stealth, b = draft.behavior, fp = draft.fingerprint || {}, sc = fp.screen || {};
+      const isCfx = L.engine === 'camoufox';
+      const cfxNote = '<div class="cat-desc">🦊 Зараз обрано Camoufox — ці опції діють лише для Chromium. Camoufox має власний антидетект/fingerprint у рушії.</div>';
       let html = '';
       if (activeCat === 'preset') {
         html = '<h3>Пресети</h3><div class="cat-desc">Один клік — застосувати набір налаштувань (одразу, з перезапуском браузера за потреби).</div>';
@@ -852,42 +854,57 @@
           `<span><b>🧩 Chromium</b> <span class="def">(за замовчуванням)</span><br><span class="def">Швидко, для звичайних сайтів. Теплий пул контекстів, усі stealth-опції нижче.</span></span></label>` +
           `<label class="engine-opt${cur === 'camoufox' ? ' sel' : ''}"><input type="radio" name="eng" data-p="launch.engine" value="camoufox"${cur === 'camoufox' ? ' checked' : ''}>` +
           `<span><b>🦊 Camoufox</b> <span class="def">(Firefox-антидетект)</span><br><span class="def">Повільніше, але проходить жорсткий Cloudflare. Без CDP (Juggler), fingerprint у C++. Ігнорує Chromium-опції.</span></span></label>`;
-        html += '<div style="margin-top:8px"><div class="cat-desc">Опції Camoufox (діють лише в режимі Camoufox):</div>';
-        html += chk('humanize (рухи курсора в рушії)', 'launch.camoufoxHumanize', L.camoufoxHumanize !== false, 'для Cloudflare не потрібно (перевірено).');
-        html += chk('geoip (timezone/locale під IP)', 'launch.camoufoxGeoip', L.camoufoxGeoip !== false, 'для Cloudflare не потрібно (перевірено).');
-        html += '</div>';
+        // Опції Camoufox — лише коли обрано Camoufox.
+        if (isCfx) {
+          html += '<div style="margin-top:8px"><div class="cat-desc">Опції Camoufox:</div>';
+          html += chk('humanize (рухи курсора в рушії)', 'launch.camoufoxHumanize', L.camoufoxHumanize !== false, 'для Cloudflare не потрібно (перевірено).');
+          html += chk('geoip (timezone/locale під IP)', 'launch.camoufoxGeoip', L.camoufoxGeoip !== false, 'для Cloudflare не потрібно (перевірено).');
+          html += '</div>';
+        } else {
+          html += '<div class="cat-desc" style="margin-top:8px">Chromium-опції — у вкладках «Запуск», «Stealth», «Fingerprint».</div>';
+        }
       } else if (activeCat === 'launch') {
-        html = '<h3>Запуск браузера</h3><div class="cat-desc">Параметри рівня запуску (Chromium). Зміна більшості = перезапуск браузера.</div>';
-        html += chk('headless', 'launch.headless', L.headless !== false, 'дефолт: true');
-        html += chk('новий headless (--headless=new)', 'launch.newHeadless', L.newHeadless !== false, 'майже як справжній Chrome. Вимкнути = старий headless (детектованіший).');
-        html += chk('--disable-blink-features=AutomationControlled', 'launch.automationControlled', L.automationControlled !== false, 'прибирає сигнал автоматизації на рівні рушія.');
-        html += chk('реальний GPU (ANGLE Metal)', 'launch.realGpu', L.realGpu !== false, 'справжні пікселі Canvas/WebGL замість софтверного SwiftShader.');
-        html += chk('вимкнути ізоляцію сайтів', 'launch.siteIsolationDisabled', L.siteIsolationDisabled !== false, 'треба для крос-доменних iframe у скрині (Ashby). Дефолт Playwright: НІ.');
-        html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
-        html += chk('persistent profile', 'launch.persistent', !!L.persistent, 'спільний профіль на диску (cookies/cache, cf_clearance). БЕЗ ізоляції між запитами.');
+        html = '<h3>Запуск браузера</h3><div class="cat-desc">Зміна більшості = перезапуск браузера.</div>';
+        html += chk('headless', 'launch.headless', L.headless !== false, 'дефолт: true (діє і для Camoufox).');
+        if (isCfx) { html += cfxNote; }
+        else {
+          html += chk('новий headless (--headless=new)', 'launch.newHeadless', L.newHeadless !== false, 'майже як справжній Chrome. Вимкнути = старий headless (детектованіший).');
+          html += chk('--disable-blink-features=AutomationControlled', 'launch.automationControlled', L.automationControlled !== false, 'прибирає сигнал автоматизації на рівні рушія.');
+          html += chk('реальний GPU (ANGLE Metal)', 'launch.realGpu', L.realGpu !== false, 'справжні пікселі Canvas/WebGL замість софтверного SwiftShader.');
+          html += chk('вимкнути ізоляцію сайтів', 'launch.siteIsolationDisabled', L.siteIsolationDisabled !== false, 'треба для крос-доменних iframe у скрині (Ashby). Дефолт Playwright: НІ.');
+          html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
+          html += chk('persistent profile', 'launch.persistent', !!L.persistent, 'спільний профіль на диску (cookies/cache, cf_clearance). БЕЗ ізоляції між запитами.');
+        }
       } else if (activeCat === 'stealth') {
         html = '<h3>Stealth (JS-доповнення)</h3><div class="cat-desc">Наші ручні правки на рівні сторінки (Chromium).</div>';
-        html += chk('navigator.webdriver = false', 'stealth.webdriver', st.webdriver, 'на прототипі (не own-property). Дефолт Playwright: true.');
-        html += chk('додати window.chrome', 'stealth.windowChrome', st.windowChrome, 'runtime/loadTimes/csi/app. Дефолт: відсутній у headless.');
-        html += chk('outerWidth/Height = реальні', 'stealth.outerWindow', st.outerWindow, 'у headless вони 0 — явний маячок.');
-        html += chk('permissions.query узгоджений', 'stealth.permissions', st.permissions, 'як у справжнього браузера.');
-        html += chk('видаляти window.__pwInitScripts', 'stealth.pwInitScripts', st.pwInitScripts, 'прямий підпис Playwright (створює addInitScript).');
+        if (isCfx) { html += cfxNote; }
+        else {
+          html += chk('navigator.webdriver = false', 'stealth.webdriver', st.webdriver, 'на прототипі (не own-property). Дефолт Playwright: true.');
+          html += chk('додати window.chrome', 'stealth.windowChrome', st.windowChrome, 'runtime/loadTimes/csi/app. Дефолт: відсутній у headless.');
+          html += chk('outerWidth/Height = реальні', 'stealth.outerWindow', st.outerWindow, 'у headless вони 0 — явний маячок.');
+          html += chk('permissions.query узгоджений', 'stealth.permissions', st.permissions, 'як у справжнього браузера.');
+          html += chk('видаляти window.__pwInitScripts', 'stealth.pwInitScripts', st.pwInitScripts, 'прямий підпис Playwright (створює addInitScript).');
+        }
       } else if (activeCat === 'behavior') {
-        html = '<h3>Поведінка при відтворенні</h3><div class="cat-desc">Як виконуються записані дії.</div>';
+        html = '<h3>Поведінка при відтворенні</h3><div class="cat-desc">Як виконуються записані дії (діє для обох рушіїв).</div>';
         html += chk('людські рухи миші й затримки', 'behavior.humanize', b.humanize !== false, 'криві рухи, паузи «на роздуми», друк по буквах, скроли. Дефолт: миттєво.');
       } else if (activeCat === 'fingerprint') {
-        html = '<h3>Fingerprint ' + (draft.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '<span class="def">(не задано)</span>') + '</h3><div class="cat-desc">Задекларовані параметри браузера (Chromium-режим). Camoufox має власний.</div>';
-        html += txt('User-Agent', 'fingerprint.userAgent', fp.userAgent);
-        html += txt('locale', 'fingerprint.locale', fp.locale);
-        html += txt('timezoneId', 'fingerprint.timezoneId', fp.timezoneId);
-        html += txt('platform', 'fingerprint.platform', fp.platform);
-        html += txt('vendor', 'fingerprint.vendor', fp.vendor);
-        html += num('hardwareConcurrency', 'fingerprint.hardwareConcurrency', fp.hardwareConcurrency);
-        html += num('deviceMemory', 'fingerprint.deviceMemory', fp.deviceMemory);
-        html += num('deviceScaleFactor', 'fingerprint.deviceScaleFactor', fp.deviceScaleFactor);
-        html += num('screen width', 'fingerprint.screen.width', sc.width);
-        html += num('screen height', 'fingerprint.screen.height', sc.height);
-        html += num('screen colorDepth', 'fingerprint.screen.colorDepth', sc.colorDepth);
+        html = '<h3>Fingerprint ' + (draft.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '<span class="def">(не задано)</span>') + '</h3>';
+        if (isCfx) { html += cfxNote; }
+        else {
+          html += '<div class="cat-desc">Задекларовані параметри браузера (Chromium).</div>';
+          html += txt('User-Agent', 'fingerprint.userAgent', fp.userAgent);
+          html += txt('locale', 'fingerprint.locale', fp.locale);
+          html += txt('timezoneId', 'fingerprint.timezoneId', fp.timezoneId);
+          html += txt('platform', 'fingerprint.platform', fp.platform);
+          html += txt('vendor', 'fingerprint.vendor', fp.vendor);
+          html += num('hardwareConcurrency', 'fingerprint.hardwareConcurrency', fp.hardwareConcurrency);
+          html += num('deviceMemory', 'fingerprint.deviceMemory', fp.deviceMemory);
+          html += num('deviceScaleFactor', 'fingerprint.deviceScaleFactor', fp.deviceScaleFactor);
+          html += num('screen width', 'fingerprint.screen.width', sc.width);
+          html += num('screen height', 'fingerprint.screen.height', sc.height);
+          html += num('screen colorDepth', 'fingerprint.screen.colorDepth', sc.colorDepth);
+        }
       } else if (activeCat === 'cookies') {
         html = '<h3>Cookies</h3><div class="cat-desc">Підставлені cookies/storageState (Chromium).</div>';
         html += `<div class="cfg-row"><label>підставлено</label><span>${draft.cookiesCount || 0} шт.</span>${draft.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : ''}</div>`;
