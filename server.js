@@ -44,29 +44,25 @@ function isCamoufox() { return (profile.launch && profile.launch.engine) === 'ca
 function isPersistent() { return !isCamoufox() && !!(profile.launch && profile.launch.persistent); }
 function launchArgs() {
   const L = profile.launch || {};
-  const args = [
-    // Прибирає ключовий сигнал автоматизації на рівні рушія (webdriver тощо).
-    '--disable-blink-features=AutomationControlled',
-    // Справжній апаратний GPU в headless через ANGLE→Metal (Mac), замість
-    // софтверного SwiftShader. Це дає «реальні» пікселі Canvas/WebGL.
-    '--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl',
-    '--use-gl=angle', '--use-angle=metal',
-  ];
+  const args = [];
+  // Прибирає ключовий сигнал автоматизації на рівні рушія.
+  if (L.automationControlled !== false) args.push('--disable-blink-features=AutomationControlled');
+  // Справжній апаратний GPU (ANGLE→Metal на Mac) замість софтверного SwiftShader.
+  if (L.realGpu !== false) args.push('--enable-gpu', '--ignore-gpu-blocklist', '--enable-webgl', '--use-gl=angle', '--use-angle=metal');
   if (L.siteIsolationDisabled !== false) {
     args.push('--disable-features=IsolateOrigins,site-per-process', '--disable-site-isolation-trials');
   }
   return args;
 }
-// Опції запуску: у headless використовуємо НОВИЙ headless (--headless=new), який
-// майже не відрізняється від справжнього Chrome (на відміну від старого headless).
+// Опції запуску. Новий headless (--headless=new) майже не відрізняється від
+// справжнього Chrome; старий headless (headless:true) — детектованіший.
 function launchFlags() {
   const L = profile.launch || {};
   const args = launchArgs();
-  if (L.headless !== false) {
-    args.push('--headless=new');
-    return { headless: false, channel: 'chrome', args }; // headless:false + --headless=new = новий headless
-  }
-  return { headless: false, channel: 'chrome', args }; // headful (видиме вікно)
+  const wantHeadless = L.headless !== false;
+  if (!wantHeadless) return { headless: false, channel: 'chrome', args };        // headful
+  if (L.newHeadless !== false) { args.push('--headless=new'); return { headless: false, channel: 'chrome', args }; }
+  return { headless: true, channel: 'chrome', args };                            // старий headless
 }
 // Прибирає storageState зі spec контексту для persistent-режиму (там свій профіль на диску).
 function persistentContextOptions() {
@@ -84,8 +80,8 @@ async function ensureEngine() {
       console.log('Запускаю CAMOUFOX (Firefox-антидетект)...');
       camoufoxBrowser = await Camoufox({
         headless: L.headless !== false,
-        humanize: true,   // людські рухи курсора на рівні рушія
-        geoip: true,      // підбирає timezone/locale під IP
+        humanize: L.camoufoxHumanize !== false, // людські рухи курсора на рівні рушія
+        geoip: L.camoufoxGeoip !== false,        // підбирає timezone/locale під IP
       });
       browserInfo = { engine: 'camoufox', headless: L.headless !== false };
       console.log('Camoufox готовий.');
@@ -160,8 +156,8 @@ const PROFILE_FILE = path.join(process.cwd(), 'profile.json');
 let profile = {
   fingerprint: null,
   storageState: null,
-  stealth: { webdriver: true, windowChrome: true },      // наші анти-детект доповнення
-  launch: { headless: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false, engine: 'chromium' }, // параметри запуску
+  stealth: { webdriver: true, windowChrome: true, outerWindow: true, permissions: true, pwInitScripts: true }, // наші анти-детект доповнення
+  launch: { headless: true, siteIsolationDisabled: true, stealthPlugin: true, persistent: false, engine: 'chromium', automationControlled: true, realGpu: true, newHeadless: true, camoufoxHumanize: true, camoufoxGeoip: true }, // параметри запуску
   behavior: { humanize: true },                          // людські рухи/затримки при відтворенні
 };
 try {
@@ -237,11 +233,13 @@ function stealthScript(fp) {
       }
     } catch(e){}
     // У headless outerWidth/outerHeight = 0 — явний маячок. Підставляємо реальні.
-    try { Object.defineProperty(window, 'outerWidth', { get: () => window.innerWidth }); } catch(e){}
-    try { Object.defineProperty(window, 'outerHeight', { get: () => window.innerHeight + 74 }); } catch(e){}
+    if (st.outerWindow) {
+      try { Object.defineProperty(window, 'outerWidth', { get: () => window.innerWidth }); } catch(e){}
+      try { Object.defineProperty(window, 'outerHeight', { get: () => window.innerHeight + 74 }); } catch(e){}
+    }
     // WebGL НЕ спуфимо — використовуємо справжній GPU (реальні vendor/renderer/пікселі).
     // permissions.query: узгоджена поведінка (як у справжньому браузері).
-    try {
+    if (st.permissions) try {
       const orig = navigator.permissions && navigator.permissions.query;
       if (orig) navigator.permissions.query = (p) =>
         p && p.name === 'notifications'
@@ -250,8 +248,10 @@ function stealthScript(fp) {
     } catch(e){}
     // Прибираємо підпис Playwright: об'єкт window.__pwInitScripts, який створює
     // addInitScript. Видаляємо його ПІСЛЯ реєстрації (наш скрипт додається останнім).
-    try { delete window.__pwInitScripts; } catch(e){}
-    try { Object.defineProperty(window, '__pwInitScripts', { get: () => undefined, set: () => {}, configurable: true }); } catch(e){}
+    if (st.pwInitScripts) {
+      try { delete window.__pwInitScripts; } catch(e){}
+      try { Object.defineProperty(window, '__pwInitScripts', { get: () => undefined, set: () => {}, configurable: true }); } catch(e){}
+    }
   })();`;
 }
 
@@ -873,8 +873,8 @@ function toStorageState(input) {
 // Дефолтний (пустий) Playwright — щоб у конфігураторі показувати, що саме змінено.
 const PLAYWRIGHT_DEFAULTS = {
   fingerprint: null,
-  stealth: { webdriver: false, windowChrome: false },
-  launch: { headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false, engine: 'chromium' },
+  stealth: { webdriver: false, windowChrome: false, outerWindow: false, permissions: false, pwInitScripts: false },
+  launch: { headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false, engine: 'chromium', automationControlled: false, realGpu: false, newHeadless: false, camoufoxHumanize: false, camoufoxGeoip: false },
   behavior: { humanize: false },
   note: 'navigator.webdriver=true, стандартний UA Playwright, без cookies, ізоляція сайтів увімкнена, без stealth-плагіна, миттєві кліки',
 };
@@ -886,8 +886,8 @@ app.post('/profile', async (req, res) => {
 
   if (clear) { // скинути до дефолту Playwright
     profile.fingerprint = null; profile.storageState = null;
-    profile.stealth = { webdriver: false, windowChrome: false };
-    profile.launch = { headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false, engine: 'chromium' };
+    profile.stealth = { webdriver: false, windowChrome: false, outerWindow: false, permissions: false, pwInitScripts: false };
+    profile.launch = { headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false, engine: 'chromium', automationControlled: false, realGpu: false, newHeadless: false, camoufoxHumanize: false, camoufoxGeoip: false };
     profile.behavior = { humanize: false };
   }
   if (fingerprint !== undefined) profile.fingerprint = fingerprint;
