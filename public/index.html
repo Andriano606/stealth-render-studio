@@ -900,7 +900,6 @@
           html += chk('--disable-blink-features=AutomationControlled', 'launch.automationControlled', L.automationControlled !== false, 'прибирає сигнал автоматизації на рівні рушія.');
           html += chk('реальний GPU (ANGLE Metal)', 'launch.realGpu', L.realGpu !== false, 'справжні пікселі Canvas/WebGL замість софтверного SwiftShader.');
           html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
-          html += chk('persistent profile', 'launch.persistent', !!L.persistent, 'спільний профіль на диску (cookies/cache, cf_clearance). БЕЗ ізоляції між запитами.');
         }
       } else if (activeCat === 'stealth') {
         html = '<h3>Stealth (JS-доповнення)</h3><div class="cat-desc">Наші ручні правки на рівні сторінки (Chromium).</div>';

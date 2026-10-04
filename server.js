@@ -41,7 +41,7 @@ let browserInfo = null;
 const USER_DATA_DIR = path.join(process.cwd(), 'browser_profile');
 
 function isCamoufox() { return (profile.launch && profile.launch.engine) === 'camoufox'; }
-function isPersistent() { return !isCamoufox() && !!(profile.launch && profile.launch.persistent); }
+function isPersistent() { return false; } // режим persistent вимкнено (завжди ізольований контекст)
 function launchArgs() {
   const L = profile.launch || {};
   const args = [];
@@ -301,7 +301,7 @@ function describeContextLogs(fromPool, warmBrowser) {
   logs.push({ kind: 'browser', text: '    ↳ launch: headless=' + (L.headless !== false) +
     ', siteIsolation=вимкнено' +
     ', stealth-plugin=' + (L.stealthPlugin !== false ? 'УВІМК' : 'вимк') +
-    ', контекст=' + (L.persistent ? 'persistent (спільний профіль, cookies зберігаються)' : 'ізольований (новий на запит)') });
+    ', контекст=ізольований (новий на запит)' });
   logs.push({ kind: 'context', text: fromPool
     ? '📦 Контекст: взято з прогрітого пулу (newContext ~0 мс)'
     : '📦 Контекст: створено новий (newContext)' });
