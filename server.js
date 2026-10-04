@@ -301,7 +301,7 @@ function describeContextLogs(fromPool, warmBrowser) {
   logs.push({ kind: 'browser', text: '    ↳ launch: headless=' + (L.headless !== false) +
     ', siteIsolation=вимкнено' +
     ', stealth-plugin=' + (L.stealthPlugin !== false ? 'УВІМК' : 'вимк') +
-    ', режим=' + (L.persistent ? 'PERSISTENT (спільний профіль, cookies зберігаються)' : 'ізольований') });
+    ', контекст=' + (L.persistent ? 'persistent (спільний профіль, cookies зберігаються)' : 'ізольований (новий на запит)') });
   logs.push({ kind: 'context', text: fromPool
     ? '📦 Контекст: взято з прогрітого пулу (newContext ~0 мс)'
     : '📦 Контекст: створено новий (newContext)' });
