@@ -204,8 +204,8 @@
 </head>
 <body>
   <header>
-    <input type="text" id="url" placeholder="Введи URL, напр. preply.com" value="https://example.com" autocomplete="off" />
-    <button id="go" type="button">Підтвердити</button>
+    <b style="font-size:15px;">🎭 Stealth Render Studio</b>
+    <span style="flex:1"></span>
     <button id="cfgBtn" type="button" title="Конфігуратор контексту" style="background:#2a2f3a;color:#aeb6c4;">⚙ Конфігуратор</button>
   </header>
 
@@ -265,8 +265,6 @@
   </div>
 
   <script>
-    const urlInput = document.getElementById('url');
-    const goBtn = document.getElementById('go');
     const tabsEl = document.getElementById('tabs');
     const viewerEl = document.getElementById('viewer');
     const newPageBtn = document.getElementById('newPageBtn');
@@ -326,28 +324,6 @@
       updateRecBtn();
     }
 
-    // ---------- Рендер сторінки ----------
-    async function render() {
-      const url = urlInput.value.trim();
-      if (!url) return;
-      goBtn.disabled = true;
-      setLive('Playwright відкриває сторінку…', false, true);
-      logRunSep('Рендер: ' + url);
-      try {
-        const r = await fetch('/render', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
-        });
-        const data = await r.json();
-        if (!data.ok) { setLive('Помилка: ' + (data.error || 'невідома'), false); logLine('info', '❌ ' + (data.error || '')); return; }
-        logMany(data.logs);
-        addScreen(data.title || url, data.screenshot, data.url || url);
-        setLive('Готово (' + (data.timing.totalMs / 1000).toFixed(1) + ' с).', false);
-      } catch (err) { setLive('Мережева помилка: ' + err.message, false); }
-      finally { goBtn.disabled = false; updateRecBtn(); }
-    }
-    goBtn.addEventListener('click', render);
-    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') render(); });
 
     // ---------- Лог-консоль ----------
     const consoleEl = document.getElementById('console');
@@ -602,7 +578,7 @@
     // Створення нового сценарію
     newPageBtn.addEventListener('click', () => {
       if (recording || running) return;
-      const def = (screens.find(s => s.id === activeId) || {}).url || urlInput.value.trim() || '';
+      const def = (screens.find(s => s.id === activeId) || {}).url || '';
       const url = prompt('Стартовий URL сценарію:', def);
       if (url === null) return;
       const page = { id: ++pageCounter, name: 'Сценарій ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
@@ -638,7 +614,6 @@
       renderPages();
       logRunSep('Старт «' + page.name + '» — ' + recs.length + ' Дій, ' + flat.length + ' під-дій' + (flat.length ? '' : ' (лише відкриття URL)'));
       logLine('info', '⚙ Пресет: ' + await ensureCurrentPreset());
-      goBtn.disabled = true;
       setLive(flat.length ? 'Виконую «' + page.name + '»: відкриваю стартову сторінку…' : 'Відкриваю «' + page.name + '»…', true);
 
       const ctx = { page, map, total: flat.length };
@@ -661,7 +636,6 @@
       } catch (err) { setLive('Помилка виконання: ' + err.message, false); }
       finally {
         running = false; page.running = false; recs.forEach(r => r.running = false);
-        goBtn.disabled = false;
         renderPages();
       }
     }
