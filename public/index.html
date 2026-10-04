@@ -82,6 +82,16 @@
     .modal-foot { border-top: 1px solid #242833; }
     .modal .x { background: none; border: none; color: #8b94a3; font-size: 18px; cursor: pointer; }
 
+    /* Панель пресетів над тілом модалки */
+    .cfg-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid #242833; background: #12141b; }
+    .cfg-presets .pre-label { font-size: 12px; color: #8b94a3; }
+    .cfg-presets .pre-btn {
+      padding: 6px 12px; font-size: 12.5px; font-weight: 600; border: 1px solid #2c3140;
+      border-radius: 8px; background: #0f1115; color: #e6e8ee; cursor: pointer;
+    }
+    .cfg-presets .pre-btn:hover { border-color: #4f7cff; background: #18203a; }
+    .cfg-presets .pre-btn.clear { color: #aeb6c4; }
+
     /* Двоколонкова розкладка: ліве меню категорій + права панель */
     .cfg-wrap { flex: 1; display: flex; min-height: 0; }
     .cfg-nav { width: 190px; flex-shrink: 0; border-right: 1px solid #242833; padding: 10px 8px; overflow-y: auto; background: #12141b; }
@@ -211,6 +221,7 @@
         <span style="flex:1"></span>
         <button id="cfgClose" class="x">✕</button>
       </div>
+      <div class="cfg-presets" id="cfgPresets"><span class="pre-label">Пресети:</span></div>
       <div class="cfg-wrap">
         <div class="cfg-nav" id="cfgNav"></div>
         <div class="cfg-main" id="cfgBody">завантаження…</div>
@@ -755,14 +766,14 @@
     // ---------- Модалка-конфігуратор ----------
     const cfgOverlay = document.getElementById('cfgOverlay');
     const cfgNav = document.getElementById('cfgNav');
+    const cfgPresets = document.getElementById('cfgPresets');
     const cfgBody = document.getElementById('cfgBody');
-    let cfgState = null, draft = null, activeCat = 'preset';
+    let cfgState = null, draft = null, activeCat = 'engine';
     document.getElementById('cfgBtn').addEventListener('click', openConfig);
     document.getElementById('cfgClose').addEventListener('click', () => cfgOverlay.classList.remove('open'));
     cfgOverlay.addEventListener('click', (e) => { if (e.target === cfgOverlay) cfgOverlay.classList.remove('open'); });
 
     const CATS = [
-      { key: 'preset', label: '⭐ Пресети' },
       { key: 'engine', label: '🧩 Рушій' },
       { key: 'launch', label: '🚀 Запуск' },
       { key: 'stealth', label: '🕵️ Stealth' },
@@ -770,6 +781,7 @@
       { key: 'fingerprint', label: '🧬 Fingerprint' },
       { key: 'cookies', label: '🍪 Cookies' },
     ];
+    const PRESET_LABELS = { all: '🛡️ All', clear: '🧹 Clear all', cloudflare: '☁️ Cloudflare', ashby: '📋 Ashby' };
     const PRESETS = {
       all: {
         name: '🛡️ All — максимальний Chromium-стелс',
@@ -807,8 +819,19 @@
       try {
         cfgState = await (await fetch('/profile')).json();
         draft = makeDraft(cfgState);
-        renderNav(); renderCategory();
+        renderPresets(); renderNav(); renderCategory();
       } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
+    }
+    function renderPresets() {
+      cfgPresets.innerHTML = '<span class="pre-label">Пресети:</span>';
+      for (const key of ['all', 'clear', 'cloudflare', 'ashby']) {
+        const btn = document.createElement('button');
+        btn.className = 'pre-btn' + (key === 'clear' ? ' clear' : '');
+        btn.textContent = PRESET_LABELS[key];
+        btn.title = PRESETS[key].desc;
+        btn.addEventListener('click', () => applyPreset(key));
+        cfgPresets.appendChild(btn);
+      }
     }
     function makeDraft(d) {
       return {
@@ -840,13 +863,7 @@
       const isCfx = L.engine === 'camoufox';
       const cfxNote = '<div class="cat-desc">🦊 Зараз обрано Camoufox — ці опції діють лише для Chromium. Camoufox має власний антидетект/fingerprint у рушії.</div>';
       let html = '';
-      if (activeCat === 'preset') {
-        html = '<h3>Пресети</h3><div class="cat-desc">Один клік — застосувати набір налаштувань (одразу, з перезапуском браузера за потреби).</div>';
-        for (const key of ['all', 'clear', 'cloudflare', 'ashby']) {
-          const p = PRESETS[key];
-          html += `<div class="preset ${p.cls || ''}"><div class="p-top"><span class="p-name">${p.name}</span><button class="p-apply" data-preset="${key}">Застосувати</button></div><div class="p-desc">${p.desc}</div></div>`;
-        }
-      } else if (activeCat === 'engine') {
+      if (activeCat === 'engine') {
         html = '<h3>Рушій</h3><div class="cat-desc">Зміна = перезапуск браузера.</div>';
         const cur = L.engine === 'camoufox' ? 'camoufox' : 'chromium';
         html +=
@@ -910,7 +927,6 @@
         html += `<div class="cfg-row"><label>підставлено</label><span>${draft.cookiesCount || 0} шт.</span>${draft.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : ''}</div>`;
       }
       cfgBody.innerHTML = html;
-      cfgBody.querySelectorAll('[data-preset]').forEach(bn => bn.addEventListener('click', () => applyPreset(bn.dataset.preset)));
       const cc = document.getElementById('cfgClearCk');
       if (cc) cc.addEventListener('click', async () => {
         const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: null }) })).json();
