@@ -435,10 +435,11 @@ async function waitPastCloudflare(page, maxMs = 40000) {
     let title = '', body = '', marker = false;
     try { title = (await page.title()) || ''; } catch (_e) {}
     try { body = await page.evaluate(() => (document.body ? document.body.innerText.slice(0, 600) : '')); } catch (_e) {}
-    // Мовно-незалежний маркер: елементи/скрипти челенджу Cloudflare.
+    // Мовно-незалежний маркер САМЕ інтерстиціалу челенджу (не фонового скрипта
+    // bot-management, який присутній на звичайних сайтах за Cloudflare).
     try {
       marker = await page.evaluate(() =>
-        !!document.querySelector('#challenge-running, #cf-chl-widget, #challenge-form, script[src*="challenge-platform"], iframe[src*="challenges.cloudflare.com"]'));
+        !!document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, #trk_jschal_js'));
     } catch (_e) {}
     const onChallenge = marker || re.test(title) || re.test(body);
     if (onChallenge) {
@@ -450,9 +451,14 @@ async function waitPastCloudflare(page, maxMs = 40000) {
       await page.waitForTimeout(rint(900, 1400));
       continue;
     }
-    // челенджу немає і є реальний контент → пройдено
-    if (body.replace(/\s+/g, '').length > 80) return { passed: true, wasChallenge };
-    await page.waitForTimeout(600);
+    // Челенджу зараз немає.
+    // Якщо його НІКОЛИ не було — це звичайна сторінка (контент може бути в iframe),
+    // не чекаємо даремно: одразу далі. Cloudflare-челендж завжди присутній одразу
+    // в початковому HTML, тож пара перших перевірок його б уже зловила.
+    if (!wasChallenge) { if (iter >= 2) return { passed: true, wasChallenge: false }; await page.waitForTimeout(300); continue; }
+    // Був челендж і зник → переконаємось, що з'явився реальний контент.
+    if (body.replace(/\s+/g, '').length > 80 || Date.now() - start > 2000) return { passed: true, wasChallenge };
+    await page.waitForTimeout(500);
   }
   return { passed: false, wasChallenge };
 }
