@@ -284,6 +284,14 @@
     // Модель: Сторінки → Дії (recs) → під-дії (subs)
     let pages = [];        // {id,name,url,expanded,running,recs:[{id,name,subs,expanded,isRecording,running}]}
     let pageCounter = 0;
+
+    // Запам'ятовування стану згорнуто/розгорнуто (Сторінок і Дій) у localStorage.
+    let expandState = {};
+    try { expandState = JSON.parse(localStorage.getItem('expandState') || '{}'); } catch (_e) { expandState = {}; }
+    if (!expandState.p) expandState.p = {};
+    if (!expandState.r) expandState.r = {};
+    function getExpand(kind, id, def) { const v = expandState[kind][id]; return v === undefined ? def : v; }
+    function setExpand(kind, id, val) { expandState[kind][id] = val; try { localStorage.setItem('expandState', JSON.stringify(expandState)); } catch (_e) {} }
     let recCounter = 0;
     let recording = false;
     let running = false;
@@ -408,8 +416,8 @@
           '<button class="tg">' + (page.expanded ? '▾' : '▸') + '</button>' +
           '<span class="pname">' + escapeHtml(page.name) + '</span>' +
           '<span class="pcount">' + page.recs.length + ' Дій</span>';
-        phead.querySelector('.tg').addEventListener('click', () => { page.expanded = !page.expanded; renderPages(); });
-        phead.querySelector('.pname').addEventListener('click', () => { page.expanded = !page.expanded; renderPages(); });
+        phead.querySelector('.tg').addEventListener('click', () => { page.expanded = !page.expanded; setExpand('p', page.id, page.expanded); renderPages(); });
+        phead.querySelector('.pname').addEventListener('click', () => { page.expanded = !page.expanded; setExpand('p', page.id, page.expanded); renderPages(); });
         phead.appendChild(mkOp('▶ Старт', 'Запустити послідовність (або просто відкрити URL)', 'run', () => runPage(page.id), busy));
         phead.appendChild(mkOp('✎', 'Перейменувати / змінити URL', '', () => editPage(page), busy));
         phead.appendChild(mkOp('✕', 'Видалити сторінку', '', () => { pages = pages.filter(x => x.id !== page.id); renderPages(); removePage(page.id); }, busy));
@@ -446,8 +454,8 @@
         '<button class="tg">' + (rec.expanded ? '▾' : '▸') + '</button>' +
         '<span class="name">' + escapeHtml(rec.name) + '</span>' +
         '<span class="meta">' + rec.subs.length + ' під-дій</span>';
-      head.querySelector('.tg').addEventListener('click', () => { rec.expanded = !rec.expanded; renderPages(); });
-      head.querySelector('.name').addEventListener('click', () => { rec.expanded = !rec.expanded; renderPages(); });
+      head.querySelector('.tg').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
+      head.querySelector('.name').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
       head.appendChild(mkOp('▶', 'Виконати до цієї Дії включно', 'run', () => runPage(page.id, rec.id), busy || !rec.subs.length));
       head.appendChild(mkOp('📎', 'Додати файл для завантаження', '', () => addFileToRec(page, rec), busy));
       head.appendChild(mkOp('✎', 'Перейменувати', '', () => { const v = prompt('Назва Дії:', rec.name); if (v) { rec.name = v; renderPages(); persistPage(page); } }, busy));
@@ -571,6 +579,7 @@
       recording = true; curPage = page;
       curRec = { id: ++recCounter, name: 'Дія ' + recCounter, subs: [], expanded: true, isRecording: true };
       page.recs.push(curRec); page.expanded = true;
+      setExpand('r', curRec.id, true); setExpand('p', page.id, true);
       renderPages();
       recordImg.classList.add('recording');
       setLive('Запис «' + curRec.name + '» у «' + page.name + '»… клікай по скріну, друкуй.', false);
@@ -608,6 +617,7 @@
       const url = prompt('Стартовий URL сторінки:', def);
       if (url === null) return;
       const page = { id: ++pageCounter, name: 'Сторінка ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
+      setExpand('p', page.id, true);
       pages.push(page);
       renderPages(); persistPage(page);
       setLive('Створено «' + page.name + '». Зроби рендер і тисни «⏺ Запис нової Дії».', false);
@@ -705,10 +715,10 @@
       try {
         const d = await (await fetch('/pages')).json();
         pages = (d.pages || []).map(p => ({
-          id: Number(p.id), name: p.name, url: p.url, expanded: true,
+          id: Number(p.id), name: p.name, url: p.url, expanded: getExpand('p', Number(p.id), true),
           recs: (p.recs || []).map(r => ({
             id: Number(r.id), name: r.name,
-            subs: (r.subs || []).map(a => ({ ...a })), expanded: false,
+            subs: (r.subs || []).map(a => ({ ...a })), expanded: getExpand('r', Number(r.id), false),
           })),
         }));
         pageCounter = pages.length ? Math.max(...pages.map(p => p.id)) : 0;
