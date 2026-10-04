@@ -346,7 +346,7 @@
         if (!data.ok) { setLive('Помилка: ' + (data.error || 'невідома'), false); logLine('info', '❌ ' + (data.error || '')); return; }
         logMany(data.logs);
         addScreen(data.title || url, data.screenshot, data.url || url);
-        setLive('Готово (' + data.timing.totalMs + ' мс).', false);
+        setLive('Готово (' + (data.timing.totalMs / 1000).toFixed(1) + ' с).', false);
       } catch (err) { setLive('Мережева помилка: ' + err.message, false); }
       finally { goBtn.disabled = false; updateRecBtn(); }
     }
@@ -689,7 +689,7 @@
         rec.subs[si].status = ev.ok ? 'done' : 'failed'; renderPages();
       } else if (ev.event === 'done') {
         addScreen('🎬 ' + ctx.page.name + ' (' + ev.actionsReplayed + '/' + ev.actionsTotal + ')', ev.screenshot, ev.url);
-        setLive('«' + ctx.page.name + '» виконано ' + ev.actionsReplayed + '/' + ev.actionsTotal + ' за ' + ev.timing.totalMs + ' мс.', false);
+        setLive('«' + ctx.page.name + '» виконано ' + ev.actionsReplayed + '/' + ev.actionsTotal + ' за ' + (ev.timing.totalMs / 1000).toFixed(1) + ' с.', false);
       } else if (ev.event === 'error') setLive('Помилка: ' + ev.message, false);
     }
 
