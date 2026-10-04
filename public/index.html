@@ -648,6 +648,7 @@
       running = true; page.running = true;
       renderPages();
       logRunSep('Старт «' + page.name + '» — ' + recs.length + ' Дій, ' + flat.length + ' під-дій' + (flat.length ? '' : ' (лише відкриття URL)'));
+      logLine('info', '⚙ Пресет: ' + await detectActivePreset());
       goBtn.disabled = true;
       setLive(flat.length ? 'Виконую «' + page.name + '»: відкриваю стартову сторінку…' : 'Відкриваю «' + page.name + '»…', true);
 
@@ -813,6 +814,32 @@
     async function loadPresets() {
       try { const d = await (await fetch('/presets')).json(); presets = d.presets || []; }
       catch (_e) { presets = []; }
+    }
+    // Чи всі поля part збігаються з target (часткове порівняння).
+    function subsetEq(part, target) {
+      if (!part) return true;
+      for (const k of Object.keys(part)) {
+        if (JSON.stringify(part[k]) !== JSON.stringify((target || {})[k])) return false;
+      }
+      return true;
+    }
+    function presetMatches(body, prof) {
+      if (!body) return false;
+      if (body.clear) {
+        const d = prof.defaults || {};
+        return subsetEq(d.launch, prof.launch) && subsetEq(d.stealth, prof.stealth) && subsetEq(d.behavior, prof.behavior) && !prof.fingerprint;
+      }
+      return subsetEq(body.launch, prof.launch) && subsetEq(body.stealth, prof.stealth) && subsetEq(body.behavior, prof.behavior)
+        && (body.fingerprint === undefined || JSON.stringify(body.fingerprint) === JSON.stringify(prof.fingerprint));
+    }
+    // Визначає назву активного пресета за поточним профілем (або «кастом»).
+    async function detectActivePreset() {
+      try {
+        const prof = await (await fetch('/profile')).json();
+        if (!presets.length) await loadPresets();
+        const match = presets.find(p => presetMatches(p.body, prof));
+        return match ? match.name : 'кастом';
+      } catch (_e) { return '—'; }
     }
     function renderPresets() {
       cfgPresets.innerHTML = '<span class="pre-label">Пресети:</span>';
