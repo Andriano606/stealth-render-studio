@@ -143,7 +143,7 @@
     }
     #newPageBtn:disabled { opacity: .45; cursor: default; }
 
-    /* Сторінка */
+    /* Сценарій */
     .page { border: 1px solid #2c3550; border-radius: 11px; margin-bottom: 10px; background: #0f131c; overflow: hidden; }
     .page.page-run { border-color: #4f7cff; }
     .page-head { display: flex; align-items: center; gap: 6px; padding: 9px 8px 9px 6px; background: #141a28; }
@@ -251,16 +251,16 @@
 
     <aside class="sidebar">
       <div class="sb-head">
-        <button id="newPageBtn" type="button">➕ Нова сторінка</button>
+        <button id="newPageBtn" type="button">➕ Новий сценарій</button>
       </div>
       <div class="live" id="live">Готово до роботи.</div>
       <div class="sb-title" style="display:flex;align-items:center;gap:8px;">
-        <span style="flex:1">Сторінки → Дії → під-дії</span>
+        <span style="flex:1">Сценарії → Дії → під-дії</span>
         <label style="font-size:11px;text-transform:none;letter-spacing:0;color:#aeb6c4;cursor:pointer;display:flex;align-items:center;gap:5px;" title="Пропускати всі під-дії типу «рух» при виконанні">
           <input type="checkbox" id="skipMoves"> без рухів
         </label>
       </div>
-      <div class="recs" id="pagesEl"><div class="none">Немає сторінок.<br>Натисни «➕ Нова сторінка».</div></div>
+      <div class="recs" id="pagesEl"><div class="none">Немає сценаріїв.<br>Натисни «➕ Новий сценарій».</div></div>
     </aside>
   </div>
 
@@ -277,7 +277,7 @@
     let activeId = null;
     let seq = 0;
 
-    // Модель: Сторінки → Дії (recs) → під-дії (subs)
+    // Модель: Сценарії → Дії (recs) → під-дії (subs)
     let pages = [];        // {id,name,url,expanded,running,recs:[{id,name,subs,expanded,isRecording,running}]}
     let pageCounter = 0;
 
@@ -291,7 +291,7 @@
     let recCounter = 0;
     let recording = false;
     let running = false;
-    let curPage = null;    // Сторінка, у яку записуємо
+    let curPage = null;    // Сценарій, у який записуємо
     let curRec = null;     // Дія, яку зараз записуємо
     let lastMoveT = 0;
     let recordImg = null;
@@ -390,7 +390,7 @@
     // ---------- Рендер списку Сторінок → Дій → під-дій ----------
     function renderPages() {
       if (!pages.length) {
-        pagesEl.innerHTML = '<div class="none">Немає сторінок.<br>Натисни «➕ Нова сторінка».</div>';
+        pagesEl.innerHTML = '<div class="none">Немає сценаріїв.<br>Натисни «➕ Новий сценарій».</div>';
         return;
       }
       const busy = running || recording;
@@ -409,7 +409,7 @@
         phead.querySelector('.pname').addEventListener('click', () => { page.expanded = !page.expanded; setExpand('p', page.id, page.expanded); renderPages(); });
         phead.appendChild(mkOp('▶ Старт', 'Запустити послідовність (або просто відкрити URL)', 'run', () => runPage(page.id), busy));
         phead.appendChild(mkOp('✎', 'Перейменувати / змінити URL', '', () => editPage(page), busy));
-        phead.appendChild(mkOp('✕', 'Видалити сторінку', '', () => { pages = pages.filter(x => x.id !== page.id); renderPages(); removePage(page.id); }, busy));
+        phead.appendChild(mkOp('✕', 'Видалити сценарій', '', () => { pages = pages.filter(x => x.id !== page.id); renderPages(); removePage(page.id); }, busy));
         pbox.appendChild(phead);
 
         const urlDiv = document.createElement('div');
@@ -480,8 +480,8 @@
       return box;
     }
     function editPage(page) {
-      const name = prompt('Назва сторінки:', page.name); if (name === null) return;
-      const url = prompt('Стартовий URL сторінки:', page.url); if (url === null) return;
+      const name = prompt('Назва сценарію:', page.name); if (name === null) return;
+      const url = prompt('Стартовий URL сценарію:', page.url); if (url === null) return;
       page.name = name.trim() || page.name;
       page.url = url.trim() || page.url;
       renderPages(); persistPage(page);
@@ -562,7 +562,7 @@
       } catch (e) { setLive('Помилка: ' + e.message, false); }
     });
 
-    // Запис нової Дії в конкретну сторінку (на поточному скріні)
+    // Запис нової Дії в конкретний сценарій (на поточному скріні)
     function startRecInPage(page) {
       if (!recordImg) { setLive('Спершу зроби рендер (введи URL вгорі), щоб було по чому клікати.', false); return; }
       recording = true; curPage = page;
@@ -599,22 +599,22 @@
       document.removeEventListener('keydown', onKey);
     }
 
-    // Створення нової сторінки
+    // Створення нового сценарію
     newPageBtn.addEventListener('click', () => {
       if (recording || running) return;
       const def = (screens.find(s => s.id === activeId) || {}).url || urlInput.value.trim() || '';
-      const url = prompt('Стартовий URL сторінки:', def);
+      const url = prompt('Стартовий URL сценарію:', def);
       if (url === null) return;
-      const page = { id: ++pageCounter, name: 'Сторінка ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
+      const page = { id: ++pageCounter, name: 'Сценарій ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
       setExpand('p', page.id, true);
       pages.push(page);
       renderPages(); persistPage(page);
       setLive('Створено «' + page.name + '». Зроби рендер і тисни «⏺ Запис нової Дії».', false);
     });
 
-    // ---------- Виконання Сторінки ----------
-    // Старт сторінки: відкриваємо її стартовий URL і послідовно проганяємо під-дії
-    // всіх Дій по порядку (накопичувальний ланцюг у межах сторінки). Можна виконати
+    // ---------- Виконання Сценарію ----------
+    // Старт сценарію: відкриваємо його стартовий URL і послідовно проганяємо під-дії
+    // всіх Дій по порядку (накопичувальний ланцюг у межах сценарію). Можна виконати
     // і частково — до певної Дії включно (кнопка ▶ на самій Дії).
     async function runPage(pageId, uptoRecId) {
       if (running || recording) return;
@@ -714,8 +714,8 @@
         pageCounter = pages.length ? Math.max(...pages.map(p => p.id)) : 0;
         const rids = pages.flatMap(p => p.recs.map(r => r.id));
         recCounter = rids.length ? Math.max(...rids) : 0;
-        setLive(d.db ? 'Сторінки завантажено з БД.' : 'БД не підключена — лише в пам\'яті.', false);
-      } catch (_e) { setLive('Не вдалося завантажити сторінки.', false); }
+        setLive(d.db ? 'Сценарії завантажено з БД.' : 'БД не підключена — лише в пам\'яті.', false);
+      } catch (_e) { setLive('Не вдалося завантажити сценарії.', false); }
       renderPages();
     }
 
@@ -1042,7 +1042,7 @@
       if (clear) applyPreset(clear); else applyProfile({ clear: true }, 'Скинуто');
     });
 
-    // Старт: захоплюємо fingerprint і підтягуємо збережені Сторінки
+    // Старт: захоплюємо fingerprint і підтягуємо збережені Сценарії
     syncFingerprint();
     loadPages();
   </script>
