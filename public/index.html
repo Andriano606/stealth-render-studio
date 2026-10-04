@@ -648,7 +648,7 @@
       running = true; page.running = true;
       renderPages();
       logRunSep('Старт «' + page.name + '» — ' + recs.length + ' Дій, ' + flat.length + ' під-дій' + (flat.length ? '' : ' (лише відкриття URL)'));
-      logLine('info', '⚙ Пресет: ' + await detectActivePreset());
+      logLine('info', '⚙ Пресет: ' + await ensureCurrentPreset());
       goBtn.disabled = true;
       setLive(flat.length ? 'Виконую «' + page.name + '»: відкриваю стартову сторінку…' : 'Відкриваю «' + page.name + '»…', true);
 
@@ -804,9 +804,13 @@
         cfgState = await (await fetch('/profile')).json();
         draft = makeDraft(cfgState);
         await loadPresets();
-        // відновлюємо активний пресет із localStorage (вважаємо чистим на відкритті)
+        // Активний пресет: беремо запам'ятований, якщо він збігається з поточним
+        // профілем; інакше — будь-який, що збігається; інакше — кастом (нічого).
         const saved = Number(localStorage.getItem('activePresetId')) || null;
-        activePresetId = presets.some(p => p.id === saved) ? saved : null;
+        const savedP = presets.find(p => p.id === saved);
+        if (savedP && presetMatches(savedP.body, cfgState)) activePresetId = saved;
+        else { const m = presets.find(p => presetMatches(p.body, cfgState)); activePresetId = m ? m.id : null; }
+        if (activePresetId) localStorage.setItem('activePresetId', String(activePresetId)); else localStorage.removeItem('activePresetId');
         presetBaseline = activePresetId ? configSig(draft) : null;
         renderPresets(); renderNav(); renderCategory();
       } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
@@ -838,6 +842,25 @@
         const prof = await (await fetch('/profile')).json();
         if (!presets.length) await loadPresets();
         const match = presets.find(p => presetMatches(p.body, prof));
+        return match ? match.name : 'кастом';
+      } catch (_e) { return '—'; }
+    }
+    // При старті сценарію: синхронізуємо сервер із ПОТОЧНИМ (запам'ятованим) пресетом,
+    // щоб сценарій точно пішов саме на ньому (localStorage міг розійтися з профілем).
+    async function ensureCurrentPreset() {
+      try {
+        if (!presets.length) await loadPresets();
+        const prof = await (await fetch('/profile')).json();
+        const savedId = Number(localStorage.getItem('activePresetId')) || null;
+        const p = presets.find(x => x.id === savedId);
+        if (p) {
+          if (!presetMatches(p.body, prof)) {
+            await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p.body) });
+            return p.name + ' (синхронізовано)';
+          }
+          return p.name;
+        }
+        const match = presets.find(x => presetMatches(x.body, prof));
         return match ? match.name : 'кастом';
       } catch (_e) { return '—'; }
     }
@@ -1026,6 +1049,10 @@
 
     document.getElementById('cfgSave').addEventListener('click', async () => {
       await applyProfile({ launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint }, 'Конфіг');
+      // оновлюємо активний пресет: чи збігається поточний конфіг із якимось пресетом
+      const match = presets.find(p => presetMatches(p.body, cfgState));
+      activePresetId = match ? match.id : null;
+      if (activePresetId) localStorage.setItem('activePresetId', String(activePresetId)); else localStorage.removeItem('activePresetId');
       cfgOverlay.classList.remove('open');
     });
     document.getElementById('cfgReset').addEventListener('click', () => {
