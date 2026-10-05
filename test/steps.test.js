@@ -583,3 +583,30 @@ test('mergeTextSteps: злитий крок відтворюється як од
   assert.equal(flat.length, 1);
   assert.equal(flat[0].text, 'hi');
 });
+
+test('healthOf: локатор type (input[type=file]) — 🎯 якщо унікальний, ⚠ якщо кілька збігів', () => {
+  const step = (n) => ({ v: 2, type: 'file', target: { pick: 0, locs: [{ by: 'type', tag: 'input', value: 'file', n }] } });
+  assert.equal(healthOf(step(1)), 'semantic');
+  assert.equal(healthOf(step(2)), 'weak');
+  assert.equal(healthOf({ v: 2, type: 'file', target: { pick: 0, locs: [{ by: 'css', value: 'div > input', n: 1 }] } }), 'weak', 'лише CSS-шлях — як і раніше ⚠');
+});
+
+test('normalizeStep: старий крок «Файл» лише з CSS → додається input[type=file] перед CSS, pick лишається на CSS', () => {
+  const legacy = { id: 's1', v: 2, type: 'file', target: { kind: 'file', pick: 0, frame: null, locs: [{ by: 'css', value: 'div._container_f7cvd_28 > input', n: 1 }] } };
+  const n = normalizeStep(legacy);
+  assert.deepEqual(n.target.locs.map((l) => l.by), ['type', 'css']);
+  assert.equal(n.target.locs[n.target.pick].by, 'css');
+  assert.equal(legacy.target.locs.length, 1, 'вхід не мутується');
+  // семантичні вище — тип іде після них
+  const lab = normalizeStep({ id: 's2', type: 'file', target: { pick: 0, locs: [{ by: 'label', value: 'CV', n: 1 }, { by: 'css', value: 'x' }] } });
+  assert.deepEqual(lab.target.locs.map((l) => l.by), ['label', 'type', 'css']);
+  assert.equal(lab.target.pick, 0);
+  // вже є type / не файл / pick=-1 — без змін
+  assert.equal(normalizeStep({ id: 's3', type: 'file', target: { pick: 0, locs: [{ by: 'type', tag: 'input', value: 'file', n: 1 }] } }).target.locs.length, 1);
+  assert.equal(normalizeStep({ id: 's4', type: 'click', target: { pick: 0, locs: [{ by: 'css', value: 'x' }] } }).target.locs.length, 1);
+  assert.equal(normalizeStep({ id: 's5', type: 'file', target: { pick: -1, locs: [{ by: 'css', value: 'x' }] } }).target.locs.length, 1);
+});
+
+test('healthOf: input[type=file] без підрахунку (n невідомий) — ⚠', () => {
+  assert.equal(healthOf({ v: 2, type: 'file', target: { pick: 0, locs: [{ by: 'type', tag: 'input', value: 'file' }] } }), 'weak');
+});

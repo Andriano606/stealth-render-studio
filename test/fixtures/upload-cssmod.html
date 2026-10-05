@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Upload (CSS modules)</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  .hdr { height: 60px; padding: 10px 20px; box-sizing: border-box; }
+  #ashby_embed_iframe { width: 720px; height: 1200px; border: 0; display: block; }
+  .ashby-application-form-field-entry { margin: 20px; }
+  .ashby-application-form-autofill-uploader { position: relative; padding: 16px; border: 1px dashed #999; }
+  .ashby-application-form-autofill-input-base-button { width: 160px; height: 40px; }
+  .ashby-application-form-autofill-input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .gap { height: 480px; }
+  .notice { height: 120px; background: #eef; }
+</style></head>
+<body>
+  <!-- Імітація Ashby (Preply apply): форма в same-origin iframe, видима кнопка «Upload File»
+       і приховане 1×1 <input type=file> БЕЗ підпису/name/id/testid, обгорнуте в div-и зі
+       стабільними класами + хеш-класами CSS-модулів Vite (_container_f7cvd_28).
+       Параметри (прокидаються в iframe):
+         ?deploy=2 — новий білд: інший хеш у класах (h2k8p) + зайвий обгортковий div і
+                     банер-повідомлення (дрейф верстки: CSS-шлях ламається, все зсувається);
+         ?two=1    — два поля файлу (Cover letter вище, Resume нижче), обидві кнопки «Upload File»;
+         ?hidden=1 — поля файлу display:none (як react-dropzone / <input hidden>): боксу немає.
+       Підставлений файл звітується на /log фікстурного сервера: «<поле>:<імʼя файлу>». -->
+  <script>
+    const q = new URLSearchParams(location.search);
+    const report = (e) => { (window.events = window.events || []).push(e); fetch('/log?e=' + encodeURIComponent(e)).catch(() => {}); };
+    if (!q.has('frame')) {
+      const pass = location.search ? '&' + location.search.slice(1) : '';
+      document.body.insertAdjacentHTML('beforeend',
+        '<div class="hdr">Preply — Apply for this job</div>' +
+        '<iframe id="ashby_embed_iframe" title="Application form" src="upload-cssmod.html?frame=1' + pass + '"></iframe>' +
+        '<div style="height:400px"></div>');
+    } else {
+      const deploy2 = q.get('deploy') === '2';
+      const H = deploy2 ? 'h2k8p' : 'f7cvd';
+      const field = (key, title) =>
+        '<div class="ashby-application-form-field-entry _fieldEntry_' + H + '_12" data-key="' + key + '">' +
+          '<div class="ashby-application-form-question-title _title_' + H + '_5">' + title + '</div>' +
+          '<div class="ashby-application-form-autofill-uploader _container_' + H + '_28">' +
+            '<div class="ashby-application-form-autofill-input-root _root_' + H + '_3">' +
+              '<button type="button" class="ashby-application-form-autofill-input-base-button _button_' + H + '_41">Upload File</button>' +
+              ' <span class="_chip_' + H + '_9"></span>' +
+            '</div>' +
+            '<input type="file" class="ashby-application-form-autofill-input _input_' + H + '_50"' + (q.has('hidden') ? ' style="display:none"' : '') + '>' +
+          '</div>' +
+        '</div>';
+      let fields = (q.has('two') ? field('cover', 'Cover letter') + '<div class="gap"></div>' : '') + field('resume', 'Resume');
+      if (deploy2) fields = '<div class="notice _notice_' + H + '_2">We updated our application form</div><div class="_stack_' + H + '_7">' + fields + '</div>';
+      document.body.insertAdjacentHTML('beforeend', '<div id="form" class="_form_' + H + '_1">' + fields + '</div>');
+      document.querySelectorAll('.ashby-application-form-field-entry').forEach((entry) => {
+        const key = entry.dataset.key;
+        entry.removeAttribute('data-key'); // жодних data-* у DOM (інакше це вже семантика)
+        const input = entry.querySelector('input[type=file]');
+        entry.querySelector('button').onclick = () => input.click();
+        input.onchange = () => {
+          const f = input.files[0];
+          entry.querySelector('span').textContent = f ? f.name : '';
+          report(key + ':' + (f ? f.name : ''));
+        };
+      });
+    }
+  </script>
+</body>
+</html>

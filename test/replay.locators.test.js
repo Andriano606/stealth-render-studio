@@ -469,6 +469,28 @@ test('file v2: setInputFiles на знайдений локатор; не зна
   assert.ok(r2.logs.some((t2) => /поле файлу/.test(t2)));
 });
 
+test('file v2: input[type=file] ×2 без геометрії (приховані поля, CSS зламано) → не «перше поле», а за порядком', async () => {
+  // Обидва поля display:none → boundingBox null; записаний бокс теж null.
+  const fi = (id) => ({ id, css: 'input[type="file"]', box: null, hidden: true });
+  const w = makeWorld([fi('cover'), fi('resume')]);
+  const typeLoc = { by: 'type', tag: 'input', value: 'file', n: 2 };
+  const t1 = tgt([typeLoc, { by: 'css', value: 'div.old > input', n: 2 }], { kind: 'file', box: null });
+  const t2 = tgt([{ by: 'css', value: 'div.old:nth-of-type(2) > input', n: 1 }, typeLoc], { kind: 'file', box: null });
+  assert.equal(await resolveTarget(fakePage(w), t1, { clock: fakeClock() }), null);
+  assert.equal(await resolveTarget(fakePage(w), t2, { clock: fakeClock() }), null);
+  w.legacyInputs = ['cover', 'resume'];
+  const r = await run([
+    { v: 2, type: 'file', fileId: 'a', filename: 'cl.pdf', target: t1 },
+    { v: 2, type: 'file', fileId: 'b', filename: 'cv.pdf', target: t2 },
+  ], w);
+  assert.deepEqual(w.files.map((f) => f.id), ['cover', 'resume']);
+  assert.deepEqual(r.dones.map((d) => d.ok), [true, true]);
+  // з геометрією — найближчий бокс (nth), як і раніше
+  const w2 = makeWorld([{ id: 'cover', css: 'input[type="file"]', box: { x: 20, y: 100, width: 1, height: 1 } }, { id: 'resume', css: 'input[type="file"]', box: { x: 20, y: 700, width: 1, height: 1 } }]);
+  const r2 = await resolveTarget(fakePage(w2), { ...t2, box: { x: 20, y: 700, w: 1, h: 1 } }, { clock: fakeClock() });
+  assert.equal(r2.strategy, 'nth'); assert.equal(r2.nth, 1);
+});
+
 test('scroll v2 з vx/vy — спершу рух миші в точку, потім колесо', async () => {
   const w = makeWorld([]);
   await run([{ v: 2, type: 'scroll', dx: 0, dy: 300, vx: 640, vy: 450 }], w);

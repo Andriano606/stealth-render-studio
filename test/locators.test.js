@@ -261,3 +261,69 @@ test('toPlaywright: дескриптори викликів', () => {
   assert.equal(toPlaywright({ by: 'weird' }), null);
   assert.equal(toPlaywright(null), null);
 });
+
+// ---------- CSS-модулі та поле файлу (крок «Файл … у поле файлу» був ⚠) ----------
+test('isStableToken: хеш-класи CSS-модулів (Vite/webpack/Next) відкидаються', () => {
+  for (const t of ['_container_f7cvd_28', '_root_abcde_3', '_btn_Ab-9z_120', 'styles__btn___3xYz9', 'Button_root__xKqzT', 'Home_main__a1B2c']) {
+    assert.equal(isStableToken(t), false, t);
+  }
+});
+
+test('isStableToken: звичайні класи (BEM, kebab, snake, Ashby) — стабільні', () => {
+  for (const t of ['ashby-application-form-autofill-uploader', 'ashby-application-form-autofill-input-root', 'card__title', 'block__elem--mod', 'btn_primary', 'nav-item_active', 'Header_wrapper', 'form', '_private', 'col_12']) {
+    assert.equal(isStableToken(t), true, t);
+  }
+});
+
+test('buildCssPath: хеш-клас CSS-модуля не потрапляє в шлях (реальний випадок Ashby)', () => {
+  const css = buildCssPath([
+    { tag: 'DIV', id: 'form' },
+    { tag: 'DIV', classes: ['ashby-application-form-autofill-uploader', '_container_f7cvd_28'] },
+    { tag: 'DIV', classes: ['ashby-application-form-autofill-input-root'] },
+    { tag: 'INPUT' },
+  ]);
+  assert.equal(css, 'div#form > div.ashby-application-form-autofill-uploader > div.ashby-application-form-autofill-input-root > input');
+  assert.ok(!/f7cvd/.test(css));
+});
+
+test('buildCandidates: приховане поле файлу без семантики → input[type=file] перед CSS-шляхом', () => {
+  const c = buildCandidates({ tag: 'INPUT', type: 'file', box: { x: 0, y: 0, w: 1, h: 1 }, path: [{ tag: 'DIV', id: 'form' }, { tag: 'INPUT' }] });
+  assert.deepEqual(c[0], { by: 'type', tag: 'input', value: 'file' });
+  assert.equal(c[c.length - 1].by, 'css');
+  // семантичні ознаки, якщо є, — вище за тип
+  const labelled = buildCandidates({ tag: 'INPUT', type: 'file', label: 'Резюме', nameAttr: 'cv' });
+  assert.deepEqual(labelled.map((l) => l.by), ['label', 'name', 'type']);
+  // для інших полів тип не додається
+  assert.ok(!buildCandidates({ tag: 'INPUT', type: 'text', path: [{ tag: 'INPUT' }] }).some((l) => l.by === 'type'));
+});
+
+test('локатор type: CSS, рядок для UI, Playwright, ранжування з лічильниками', () => {
+  const l = { by: 'type', tag: 'input', value: 'file' };
+  assert.equal(specToString(l), 'input[type="file"]');
+  assert.deepEqual(toPlaywright(l), { method: 'locator', args: ['input[type="file"]'] });
+  const cands = [l, { by: 'css', value: 'div > input', nth: null }];
+  assert.deepEqual(rankWithCounts(cands, [1, 1]).map((x) => [x.by, x.n]), [['type', 1], ['css', 1]]);
+  assert.deepEqual(rankWithCounts(cands, [2, 1]).map((x) => x.by), ['css', 'type'], 'кілька полів файлу → унікальний CSS вище');
+});
+
+test('isStableToken: Next.js/CRA з малої (page_main__…) і Turbopack (…-module__хеш__local) відкидаються', () => {
+  for (const t of ['page_main__GLmXu', 'layout_header__xYzQw', 'styles_card__aBcDe', 'nav-bar_root__AbCdE',
+    'page-module__E0vvGG__main', 'layout-module__PJhD8a__container', 'Details-module-scss-module__MGoXJG__label', 'page-module__a_b-C__x']) {
+    assert.equal(isStableToken(t), false, t);
+  }
+  // BEM-подібні з хвостом-словом і блоки з «-module» — стабільні
+  for (const t of ['search_form__input', 'card_title__label', 'my-module__title', 'header__nav-item', 'my-module__title__elem']) {
+    assert.equal(isStableToken(t), true, t);
+  }
+});
+
+test('isStableToken: astro-* (scope-класи Astro) відкидаються', () => {
+  assert.equal(isStableToken('astro-J7PVZSFK'), false);
+});
+
+test('buildCssPath: хеш styled-components поруч із sc-… не потрапляє в шлях; без sc- класи лишаються', () => {
+  assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['sc-bdVaJa', 'kQfLtv', 'card'] }, { tag: 'input' }]), 'body > div.card > input');
+  assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['sc-bdVaJa', 'kQfLtv'] }, { tag: 'input' }]), 'body > div > input');
+  assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['sc-bdVaJa', 'button'] }, { tag: 'input' }]), 'body > div.button > input', 'звичайний клас на styled-компоненті лишається');
+  assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['navItem', 'myBtnOk'] }, { tag: 'input' }]), 'body > div.navItem.myBtnOk > input');
+});
