@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><title>Snap: обгортка, модалка, відкривач</title>
+<style>
+  body { margin: 0; height: 2000px; font: 14px sans-serif; }
+  .abs { position: absolute; }
+  button { margin: 0; }
+</style></head>
+<body>
+  <!-- (a) дрейф на 15 px з кнопки на DIV-обгортку → snap до кнопки (≤24 px) -->
+  <div id="rowA" class="abs" style="left:40px;top:100px;width:400px;height:80px;background:#f4f4f4"></div>
+  <button id="b1" class="abs" style="left:60px;top:120px;width:100px;height:30px">B1</button>
+
+  <!-- (b) ближча кнопка ПІД модалкою (невидима) — snap лише до видимої кнопки в модалці -->
+  <button id="hidden" class="abs" style="left:60px;top:400px;width:100px;height:30px">Hidden</button>
+  <div id="modal" class="abs" style="left:40px;top:380px;width:400px;height:120px;z-index:10;background:rgba(0,0,0,.3)">
+    <button id="vis" class="abs" style="left:20px;top:80px;width:100px;height:30px">Vis</button>
+  </div>
+
+  <!-- (c) поряд лише відкривач з aria-expanded=true і disabled-кнопка → без snap, клік як записано -->
+  <div id="rowC" class="abs" style="left:40px;top:700px;width:400px;height:100px;background:#f4f4f4"></div>
+  <button id="opener" class="abs" aria-expanded="true" style="left:60px;top:720px;width:100px;height:30px">Opener</button>
+  <button id="dis" class="abs" disabled style="left:130px;top:770px;width:100px;height:30px">Disabled</button>
+
+  <script>
+    window.clicks = [];
+    for (const id of ['b1', 'hidden', 'vis', 'opener', 'dis']) document.getElementById(id).addEventListener('click', () => clicks.push(id));
+    document.getElementById('rowA').addEventListener('click', () => clicks.push('wrapA'));
+    document.getElementById('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') clicks.push('modal'); });
+    document.getElementById('rowC').addEventListener('click', () => clicks.push('wrapC'));
+  </script>
+</body></html>

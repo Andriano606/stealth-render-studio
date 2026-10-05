@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Внутрішній скрол-контейнер</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 16px sans-serif; }
+  #sc { position: absolute; left: 0; top: 0; width: 70%; height: 100%; overflow: auto; background: #fafafa; }
+  #inner { position: relative; height: 3000px; }
+  #inner button { position: absolute; left: 60px; width: 220px; height: 40px; }
+  #side { position: absolute; left: 70%; top: 0; width: 30%; height: 100%; background: #eee; }
+</style></head>
+<body>
+  <!-- Документ не скролиться, скролиться #sc (SPA-розмітка). Колесо «роздивляння»
+       над #sc прокрутило б його, а window.scrollTo цього не відкотить. -->
+  <div id="sc"><div id="inner">
+    <button id="i1" style="top:120px">I1</button>
+    <button id="i2" style="top:320px">I2</button>
+    <button id="i3" style="top:520px">I3</button>
+    <button id="i4" style="top:720px">I4</button>
+    <button id="far" style="top:2500px">FAR</button>
+  </div></div>
+  <div id="side">Бічна панель</div>
+  <script>
+    window.clicks = [];
+    document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => window.clicks.push(b.id)));
+  </script>
+</body>
+</html>

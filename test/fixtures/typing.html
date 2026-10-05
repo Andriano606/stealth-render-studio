@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<title>Фікстура друку</title>
+<style>
+  body { margin: 0; padding: 24px; font: 16px sans-serif; }
+  label { display: block; margin: 12px 0 4px; }
+  input { width: 280px; height: 30px; font: inherit; }
+  #echo { margin-top: 16px; white-space: pre; }
+</style>
+</head>
+<body>
+  <h1>Фікстура друку (e2e)</h1>
+  <label for="first">Імʼя</label>
+  <input id="first" autocomplete="off">
+  <label for="city">Місто</label>
+  <input id="city" autocomplete="off">
+  <div id="echo"></div>
+  <script>
+    // Ехо значень полів: на сторінці (видно на фінальному скріні) і на фікстурний сервер
+    // (/log?e=<поле>:<значення>&t=<Date.now() у браузері>) — для перевірки вмісту й таймінгу.
+    const echo = document.getElementById('echo');
+    for (const id of ['first', 'city']) {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        echo.textContent = 'first=' + document.getElementById('first').value + '\ncity=' + document.getElementById('city').value;
+        fetch('/log?e=' + encodeURIComponent(id + ':' + el.value) + '&t=' + Date.now()).catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

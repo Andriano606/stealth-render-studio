@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><title>Банер унизу</title>
+<!-- position:fixed банер унизу viewport: його позиція у viewport не залежить від scrollY. -->
+<style>body { margin: 0; height: 4000px; font: 16px sans-serif; }</style></head>
+<body>
+  <a href="#" id="c" style="position:absolute;top:2400px;left:100px;display:block;width:200px;height:50px">C</a>
+  <div style="position:fixed;bottom:0;left:0;right:0;height:80px;background:#ddd"><button id="acc" style="margin:10px 1000px;width:200px;height:60px">Accept</button></div>
+  <script>window.clicks=[];document.querySelectorAll('a,button').forEach(e=>e.addEventListener('click',ev=>{ev.preventDefault();clicks.push(e.id)}))</script>
+</body></html>

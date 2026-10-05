@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Фіксовані шапка і банер</title>
+<style>
+  body { margin: 0; height: 4000px; font: 16px sans-serif; }
+  header { position: fixed; top: 0; left: 0; right: 0; height: 120px; background: #333; color: #fff; z-index: 10; }
+  header a { display: inline-block; margin: 40px 0 0 40px; width: 120px; height: 40px; line-height: 40px; color: #fff; background: #555; text-align: center; }
+  .b { position: absolute; left: 100px; width: 200px; height: 40px; }
+  #cookie { position: fixed; left: 0; right: 0; bottom: 0; height: 60px; background: #222; z-index: 11; }
+  #accept { position: absolute; right: 40px; top: 10px; width: 200px; height: 40px; }
+</style></head>
+<body>
+  <header><a id="home" href="#top">Home</a></header>
+  <button class="b" id="a" style="top:1500px">A</button>
+  <button class="b" id="b" style="top:1080px">B</button>
+  <div id="cookie"><button id="accept">Прийняти cookies</button></div>
+  <script>
+    window.clicks = [];
+    document.querySelectorAll('button, a').forEach((b) => b.addEventListener('click', (e) => {
+      window.clicks.push(b.id);
+      if (b.id === 'home') e.preventDefault();
+      if (b.id === 'accept') document.getElementById('cookie').remove();
+    }));
+  </script>
+</body>
+</html>

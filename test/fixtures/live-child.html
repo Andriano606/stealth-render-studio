@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Форма в iframe</title>
+<style> body { margin: 0; font: 16px sans-serif; } </style></head>
+<body>
+  <div style="height:40px">Форма партнера</div>
+  <button id="apply" style="margin-left:60px;width:180px;height:40px">Apply now</button>
+  <script>document.getElementById('apply').onclick = () => parent.postMessage('apply', '*');</script>
+</body>
+</html>

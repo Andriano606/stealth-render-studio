@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><title>Головний світ: обгортки API</title>
+<script>
+/* Обгортки сторінки (як у антибота): фіксують виклики, у стеку яких видно Playwright-evaluate. */
+(() => {
+  window.__mw = [];
+  const wrap = (obj, name, label) => { const o = obj[name]; obj[name] = function (...a) { if (!window.__mwOff) { const st = new Error().stack || ""; window.__mw.push(label + (/UtilityScript|eval at evaluate|__playwright/.test(st) ? "|PW" : "|page")); } return o.apply(this, a); }; };
+  wrap(Document.prototype, "querySelectorAll", "qsa"); wrap(Element.prototype, "querySelectorAll", "qsaEl"); wrap(Document.prototype, "querySelector", "qs");
+  wrap(Document.prototype, "elementFromPoint", "efp"); wrap(Document.prototype, "elementsFromPoint", "efps");
+  wrap(window, "getComputedStyle", "gcs"); wrap(Element.prototype, "getBoundingClientRect", "gbcr");
+  wrap(window, "requestAnimationFrame", "raf"); wrap(window, "scrollTo", "scrollTo");
+  const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "innerText");
+  Object.defineProperty(HTMLElement.prototype, "innerText", { configurable: true, get() { if (!window.__mwOff) { const st = new Error().stack || ""; window.__mw.push("innerText" + (/UtilityScript|eval at evaluate|__playwright/.test(st) ? "|PW" : "|page")); } return d.get.call(this); } });
+})();
+</script>
+</head>
+<body style="margin:0;height:3000px;font:14px sans-serif">
+  <div id="hdr" style="position:fixed;top:0;left:0;right:0;height:60px;background:#ccc;z-index:5"><button id="home" style="margin:10px 20px;width:100px;height:40px">Home</button></div>
+  <button id="near" style="position:absolute;left:100px;top:200px;width:100px;height:30px">Near</button>
+  <input id="inp" style="position:absolute;left:100px;top:300px;width:200px;height:30px">
+  <button id="low" style="position:absolute;left:100px;top:2000px;width:100px;height:30px">Low</button>
+  <iframe id="f" style="position:absolute;left:400px;top:150px;width:400px;height:200px;border:2px solid #000"></iframe>
+  <script>
+    window.clicks = [];
+    for (const id of ['home', 'near', 'inp', 'low']) document.getElementById(id).addEventListener('click', () => clicks.push(id));
+    const child = new URLSearchParams(location.search).get('child');
+    if (child) document.getElementById('f').src = child;
+  </script>
+</body></html>

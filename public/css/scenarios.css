@@ -1,0 +1,198 @@
+/* scenarios.css — сайдбар сценаріїв (scenarios.js), редактор кроку (stepEditor.js),
+ * прогін (runner.js: статуси, бейджі стратегій, failShot), бейдж «Не збережено» (persist.js),
+ * меню ⋯. Токени — у base.css. Mobile-first: рядки переносяться,
+ * дії кроку йдуть окремим рядком на вузьких екранах, цілі дотику ≥ 36–44 px.
+ */
+
+/* ---------- Порожній стан / онбординг ---------- */
+.sc-empty { text-align: left !important; padding: 14px 10px !important; }
+.sc-empty-title { margin: 0 0 8px; color: var(--text-muted); font-weight: 600; }
+.sc-steps-howto { margin: 0 0 14px; padding-left: 22px; color: var(--text-dim); line-height: 1.6; font-size: 13px; }
+.sc-steps-howto b { color: var(--text-2); }
+.sc-empty .btn { width: 100%; }
+
+/* ---------- Картка сценарію ---------- */
+.sc-card.page-rec { border-color: var(--rec); }
+.sc-card .page-head { gap: 2px; padding: 6px 4px 4px 6px; }
+.sc-card .page-head .pname { padding: 6px 2px; min-height: 32px; }
+.sc-card .rename {
+  flex: 1; min-width: 0; padding: 6px 8px; min-height: 34px; font-size: 14px;
+  background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius-s); color: var(--text);
+}
+.op.more { font-size: 18px; line-height: 1; color: var(--text-muted); }
+.page-info { border-bottom: 1px solid var(--border-soft); }
+.sc-card .page-url { border-bottom: none; padding: 2px 12px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
+.sc-lastrun { padding: 0 12px 8px; font-size: 12px; color: var(--text-dim); line-height: 1.45; overflow-wrap: anywhere; }
+.sc-lastrun.ok { color: var(--ok); }
+.sc-lastrun.failed, .sc-lastrun.error { color: var(--danger-soft); }
+.sc-lastrun.stopped { color: var(--warn-text); }
+.sc-lastrun.degraded { color: var(--warn-text); }
+
+.page-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border-soft); }
+.page-actions > .btn, .sc-split { flex: 1 1 120px; }
+.page-actions .btn { min-height: 36px; }
+.sc-run { background: #1d3a2a; color: var(--ok-2); border-color: #2e5c42; }
+.sc-run:hover:not(:disabled) { border-color: var(--ok); }
+.sc-stop { background: #3a1d1d; color: var(--danger-soft); border-color: #6a2b2b; }
+.sc-split { display: flex; min-width: 0; }
+.sc-rec { background: #3a1f24; color: var(--danger-soft); border-color: #6a2b33; }
+.sc-rec:hover:not(:disabled) { border-color: var(--rec); }
+.sc-split .sc-rec:first-child { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sc-split .sc-rec-more { flex: 0 0 auto; padding: 4px 10px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: #5a2630; }
+.sc-recstop { flex: 1 1 100%; background: var(--bg-btn-2); color: var(--danger-soft); border-color: var(--rec); }
+@media (pointer: coarse) { .page-actions .btn { min-height: var(--touch); } }
+
+.page-recs { padding-bottom: 8px; }
+.sc-norecs { padding: 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
+
+/* ---------- Дія ---------- */
+.rec-head { flex-wrap: wrap; }
+.rec-head .meta.has-fail { color: var(--danger-text); }
+.rec-head .meta.has-warn { color: var(--warn-text); cursor: help; }
+.op.rec-more { color: var(--danger-soft); }
+.op.rec-more:disabled { color: var(--text-faint); }
+
+/* ---------- Рядки кроків ----------
+ * Два рядки: [№ іконка підпис статус] / [чипи · стратегія · дії].
+ */
+.subs li { position: relative; flex-direction: column; align-items: stretch; gap: 2px; }
+.subs li .row-main { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.subs li .row-main .n { padding-top: 2px; }
+.subs li .row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 21px; min-height: 0; }
+.subs li .ico { flex-shrink: 0; width: 18px; text-align: center; font-size: 12px; }
+.subs li .desc { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.subs li.moves-row, .subs li.sc-moves-toggle, .subs li.empty, .subs li.invalid { flex-direction: row; align-items: center; }
+.subs li .hchip { font-size: 11px; padding: 0 4px; border-radius: 5px; line-height: 18px; border: 1px solid transparent; cursor: help; }
+.hchip.h-ok { background: #15301f; border-color: #24563a; }
+.hchip.h-weak { background: #33290f; border-color: #5c4a1b; color: var(--warn-text); }
+.hchip.h-coords { background: #2a1d2e; border-color: #4a3152; }
+.subs li .tag {
+  font-size: 10.5px; padding: 0 5px; border-radius: 5px; line-height: 18px; white-space: nowrap;
+  background: var(--bg-btn-2); color: var(--text-muted);
+}
+.subs li .tag.healed { background: #33290f; color: var(--warn-text); }
+/* ⏱ пауза після кроку триває зараз (подія 'pause' прогону) */
+.subs li .tag.pausing { background: var(--bg-btn-2); color: var(--accent-text); box-shadow: inset 0 0 0 1px var(--accent); }
+.subs li .strat {
+  font-size: 10.5px; padding: 0 5px; border-radius: 5px; line-height: 18px; white-space: nowrap;
+  background: #172036; color: var(--accent-text); font-variant-numeric: tabular-nums;
+}
+.strat.strat-coord, .strat.strat-snap { background: #2a1d2e; color: #e3b8ff; }
+.strat.strat-loc-alt, .strat.strat-nth { background: #33290f; color: var(--warn-text); }
+.subs li .badge { width: 16px; }
+.subs li .acts { display: inline-flex; gap: 0; margin-left: auto; flex-shrink: 0; }
+.subs li.disabled .row-main .desc, .subs li.disabled .row-main .ico { text-decoration: line-through; opacity: .6; }
+.subs li.pending { border-style: dashed; opacity: .75; }
+/* Пройшов запасним шляхом (📍 координати при наявному локаторі / 🧲 snap) — не чистий ✓ */
+.subs li.done.fallback { border-color: #5c4a1b; }
+.subs li.done.fallback .badge { color: var(--warn-text); }
+.subs li.pending .badge { color: var(--warn-text); }
+.subs li.editing { border-color: var(--accent); }
+.subs li.invalid { color: var(--warn-text); }
+.subs li .err { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 8px; padding: 2px 0 2px 21px; flex-basis: auto; }
+.subs li .err.soft { color: var(--text-dim); }
+.subs li .err-text { flex: 1 1 160px; min-width: 0; }
+.failshot { padding: 0; border: 1px solid #5a2a2a; border-radius: var(--radius-s); background: var(--bg-sunken); line-height: 0; cursor: zoom-in; flex-shrink: 0; }
+.failshot img { width: 96px; height: 60px; object-fit: cover; object-position: top left; border-radius: var(--radius-s); }
+.subs li .fixes { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.subs li .fixes .btn { min-height: 30px; font-weight: 500; }
+
+/* Рядок «+N рухів» */
+.moves-row { color: var(--text-dim) !important; background: transparent !important; border-style: dashed !important; }
+.linkish {
+  background: none; border: none; padding: 4px 2px; min-height: 28px; color: var(--link);
+  font-size: 12.5px; text-align: left; border-radius: var(--radius-s);
+}
+.linkish:hover { text-decoration: underline; }
+.linkish.opt { margin-left: auto; color: var(--warn-text); }
+.sc-moves-toggle { background: transparent !important; border: none !important; padding: 0 4px !important; }
+
+/* На вузьких рядках дії кроку — окремим рядком праворуч */
+
+@media (pointer: coarse) { .subs li .acts .op { min-width: 40px; min-height: 40px; } }
+
+/* ---------- Редактор кроку ---------- */
+.step-editor {
+  flex-basis: auto; display: flex; flex-direction: column; gap: 10px;
+  margin: 6px 0 2px; padding: 10px; border-radius: var(--radius); background: var(--bg-card); border: 1px solid var(--border-strong);
+}
+.se-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.se-field > label, .se-label { font-size: 12px; color: var(--text-muted); }
+.se-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.step-editor select, .step-editor input[type=text], .step-editor input[type=number] {
+  min-width: 0; max-width: 100%; padding: 7px 9px; min-height: 36px; font-size: 13px;
+  background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-s); color: var(--text);
+}
+.step-editor select { flex: 1 1 180px; }
+.step-editor input[type=text] { width: 100%; }
+.step-editor select:focus, .step-editor input:focus { border-color: var(--accent); }
+.se-xy input[type=number] { width: 96px; }
+.se-xy label { font-size: 12px; color: var(--text-dim); }
+.se-row { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+.se-row input[type=number] { width: 120px; }
+.se-hint { font-size: 11.5px; color: var(--text-dim); line-height: 1.45; overflow-wrap: anywhere; }
+.se-count { font-size: 11px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border-strong); color: var(--text-muted); }
+.se-count[data-level="ok"] { background: #15301f; border-color: #24563a; color: var(--ok-2); }
+.se-count[data-level="warn"] { background: #33290f; border-color: #5c4a1b; color: var(--warn-text); }
+.se-count[data-level="bad"] { background: #3a1d1d; border-color: #6a2b2b; color: var(--danger-soft); }
+.se-chip {
+  font: 12px/1 var(--mono); padding: 6px 9px; min-height: 30px; border-radius: 999px;
+  border: 1px solid var(--border-hover); background: var(--bg-btn-2); color: var(--text);
+}
+.se-chip:hover { border-color: var(--accent); }
+.se-preview { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.se-checks { display: flex; flex-direction: column; gap: 4px; }
+.se-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); min-height: 30px; cursor: pointer; }
+.se-check input { width: 18px; height: 18px; flex-shrink: 0; }
+.se-err { font-size: 12px; color: var(--danger-text); }
+.se-err:empty { display: none; }
+.se-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- Меню ⋯ ---------- */
+.sc-menu {
+  position: fixed; z-index: 50; min-width: 200px; max-width: calc(100vw - 16px);
+  display: flex; flex-direction: column; padding: 4px; border-radius: var(--radius-m);
+  background: var(--bg-elev); border: 1px solid var(--border-strong); box-shadow: 0 8px 28px rgba(0, 0, 0, .5);
+}
+.sc-menu-item {
+  text-align: left; padding: 8px 12px; min-height: 38px; border: none; background: none;
+  color: var(--text); font-size: 13.5px; border-radius: var(--radius-s); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sc-menu-item:hover:not(:disabled), .sc-menu-item:focus-visible { background: var(--bg-hover); }
+.sc-menu-item.danger { color: var(--danger-text); }
+.sc-menu-item:disabled { color: var(--text-faint); }
+@media (pointer: coarse) { .sc-menu-item { min-height: var(--touch); } }
+
+/* ---------- Знімок збою (модалка) ---------- */
+dialog.shot-modal { width: 960px; max-height: 92vh; }
+dialog.shot-modal[open] { display: flex; flex-direction: column; }
+.shot-modal .modal-head h2 { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shot-body { overflow: auto; padding: 10px; background: var(--bg-sunken); min-height: 0; }
+.shot-body img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: var(--radius-s); }
+
+/* ---------- Бейдж «Не збережено» (хедер) ---------- */
+.save-badge {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border-radius: 999px;
+  font-size: 12.5px; white-space: nowrap; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text-muted);
+}
+.save-badge:disabled { cursor: default; opacity: 1; }
+.save-badge.saving { color: var(--text-dim); }
+.save-badge.error { border-color: var(--danger-text); color: var(--danger-soft); }
+.save-badge.error:hover { background: #2a1717; }
+.save-badge.nodb { border-color: var(--warn); color: var(--warn-text); }
+
+/* ---------- Модалка редагування кроку ---------- */
+dialog.step-modal { width: 560px; }
+.step-modal .modal-inner { max-height: calc(100dvh - 24px); }
+.step-modal .modal-head { align-items: flex-start; }
+.sem-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sem-titles h2 { margin: 0; font-size: 16px; }
+.sem-sub { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted); overflow-wrap: anywhere; }
+.step-modal .step-editor { margin: 0; padding: 14px 16px 0; border: 0; border-radius: 0; background: none; overflow-y: auto; min-height: 0; flex: 1; }
+.step-modal .step-editor .se-foot { margin: 6px -16px 0; position: sticky; bottom: 0; background: var(--bg-elev); }
+@media (max-width: 599px) {
+  dialog.step-modal { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; margin: 0; }
+  .step-modal .modal-inner { max-height: 100dvh; }
+  .step-modal .se-foot .btn { flex: 1; min-height: var(--touch); }
+}

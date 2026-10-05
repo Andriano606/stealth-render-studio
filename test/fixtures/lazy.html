@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Lazy і зсув верстки</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  #intro { height: 1100px; background: #f4f4f4; }
+  .row { display: block; margin: 10px 100px; width: 300px; height: 40px; }
+</style></head>
+<body>
+  <!-- Пізній банер угорі (зсуває все на 80px) + lazy-зображення без розмірів (0px до
+       завантаження) + блок, що розгортається, коли потрапляє у viewport (IntersectionObserver).
+       Запис робиться на повністю розгорнутій верстці (/render: settle + autoScroll). -->
+  <div id="banner-slot"></div>
+  <div id="intro">Вступ</div>
+  <img id="pic" loading="lazy" src="/img?ms=300&h=500" alt="">
+  <div id="grow" style="height:1px;overflow:hidden;background:#cde"></div>
+  <button class="row" id="target">ЦІЛЬ</button>
+  <button class="row" id="d1">d1</button><button class="row" id="d2">d2</button>
+  <button class="row" id="d3">d3</button><button class="row" id="d4">d4</button>
+  <button class="row" id="d5">d5</button><button class="row" id="d6">d6</button>
+  <button class="row" id="d7">d7</button><button class="row" id="d8">d8</button>
+  <button class="row" id="d9">d9</button><button class="row" id="d10">d10</button>
+  <button class="row" id="d11">d11</button><button class="row" id="d12">d12</button>
+  <button class="row" id="d13">d13</button><button class="row" id="d14">d14</button>
+  <div style="height:1200px"></div>
+  <script>
+    window.clicks = [];
+    document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => window.clicks.push(b.id)));
+    setTimeout(() => {
+      document.getElementById('banner-slot').innerHTML = '<div style="height:80px;background:#fd0">Новина дня: банер зʼявився пізно</div>';
+    }, 1200);
+    const grow = document.getElementById('grow');
+    new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) setTimeout(() => { grow.style.height = '400px'; grow.textContent = 'Розгорнуто'; }, 250);
+    }).observe(grow);
+  </script>
+</body>
+</html>

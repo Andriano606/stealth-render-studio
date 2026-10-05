@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Анкета кандидата</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; background: #fff; color: #111; }
+  h1 { margin: 16px 20px; font-size: 22px; }
+  .row { margin: 14px 20px; display: flex; align-items: center; gap: 12px; }
+  .row label { width: 200px; }
+  #banner { display: none; height: 260px; background: #fd8; padding: 20px; box-sizing: border-box; }
+  #fullname { width: 260px; height: 30px; }
+  .dd { position: relative; }
+  #ddopen { width: 220px; height: 34px; text-align: left; }
+  #ddmenu { position: absolute; left: 0; top: 38px; width: 220px; display: none; background: #eef; border: 1px solid #99a; z-index: 5; }
+  .dd-option { height: 32px; line-height: 32px; padding-left: 10px; cursor: pointer; }
+  .dd-option:hover { background: #ccd; }
+  #level { width: 200px; height: 30px; }
+  #frm { width: 420px; height: 100px; border: 2px solid #888; }
+  #result { margin: 14px 20px; padding: 10px; min-height: 22px; font-weight: bold; }
+  #result.ok { background: #d9f7d9; color: #135; }
+</style></head>
+<body>
+  <!-- Фікстура для test/e2e/ui.e2e.test.js: поле з підписом, асинхронний дропдаун (div-опції,
+       зʼявляються через 300-600 мс), нативний <select>, прихований file-input за кнопкою,
+       submit у same-origin iframe і повідомлення з результатом.
+       ?shift=1 — банер 260px зверху + переставлені рядки (координати запису промахуються,
+       семантичні локатори — ні). Події надсилаються на /log фікстурного сервера. -->
+  <div id="banner">Банер акції: знижка на все!</div>
+  <h1>Анкета кандидата</h1>
+  <div class="row" id="r-name"><label for="fullname">Повне імʼя</label><input id="fullname" name="fullname" autocomplete="off"></div>
+  <div class="row" id="r-city"><span id="city-lbl" style="width:200px">Місто</span>
+    <div class="dd"><button type="button" id="ddopen" aria-haspopup="listbox" aria-labelledby="city-lbl ddval"><span id="ddval">Обрати місто ▾</span></button>
+      <div id="ddmenu" role="listbox" aria-label="Міста"></div></div></div>
+  <div class="row" id="r-level"><label for="level">Рівень англійської</label>
+    <select id="level"><option value="">—</option><option value="B1">B1 Intermediate</option><option value="B2">B2 Upper-Intermediate</option><option value="C1">C1 Advanced</option></select></div>
+  <div class="row" id="r-cv"><span style="width:200px">Резюме</span><button type="button" id="cvbtn">Завантажити CV</button>
+    <input type="file" id="cv" hidden> <span id="cvname"></span></div>
+  <div class="row" id="r-frame"><iframe id="frm" title="Відправка заявки" src="apply-frame.html"></iframe></div>
+  <div id="result" role="status" aria-live="polite"></div>
+  <div style="height:400px"></div>
+  <script>
+    const report = (e) => { (window.events = window.events || []).push(e); fetch('/log?e=' + encodeURIComponent(e)).catch(() => {}); };
+    const $ = (id) => document.getElementById(id);
+    const CITIES = ['Київ', 'Львів', 'Одеса'];
+    let city = '';
+    const shifted = new URLSearchParams(location.search).has('shift');
+    $('ddopen').addEventListener('click', () => {
+      const menu = $('ddmenu');
+      if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+      menu.innerHTML = '';
+      menu.style.display = 'block';
+      menu.textContent = 'Завантаження…';
+      // «Мережа»: опції приходять із затримкою.
+      setTimeout(() => {
+        menu.innerHTML = CITIES.map((c) => '<div class="dd-option" role="option" data-v="' + c + '">' + c + '</div>').join('');
+      }, 300 + Math.floor(Math.random() * 300));
+    });
+    $('ddmenu').addEventListener('click', (e) => {
+      const o = e.target.closest('.dd-option');
+      if (!o) return;
+      city = o.dataset.v;
+      $('ddval').textContent = city;
+      $('ddmenu').style.display = 'none';
+      report('city:' + city);
+    });
+    $('level').onchange = () => report('level:' + $('level').value);
+    $('cvbtn').onclick = () => $('cv').click();
+    $('cv').onchange = () => { const f = $('cv').files[0]; $('cvname').textContent = f ? f.name : ''; report('cv:' + (f ? f.name : '')); };
+    // Сабміт приходить з iframe (postMessage) → повідомлення з результатом.
+    addEventListener('message', (e) => {
+      if (e.data !== 'submit') return;
+      const f = $('cv').files[0];
+      const summary = [$('fullname').value, city, $('level').value, f ? f.name : ''].join('|') + (shifted ? '|shift' : '');
+      $('result').textContent = '✅ Заявку отримано: ' + summary;
+      $('result').className = 'ok';
+      report('submit:' + summary);
+    });
+    if (shifted) {
+      $('banner').style.display = 'block';
+      // переставляємо: резюме вище за імʼя, рівень — перед містом
+      $('r-name').before($('r-cv'));
+      $('r-city').before($('r-level'));
+    }
+  </script>
+</body>
+</html>

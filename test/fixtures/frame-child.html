@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Форма в iframe</title>
+<style> body { margin: 0; height: 480px; font: 16px sans-serif; } </style></head>
+<body>
+  <div style="height:200px">Заголовок форми (інший origin)</div>
+  <button id="apply" style="margin-left:100px;width:220px;height:44px">Apply</button>
+  <script>
+    document.getElementById('apply').addEventListener('click', () => parent.postMessage('apply', '*'));
+  </script>
+</body>
+</html>

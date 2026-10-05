@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Асинхронний дропдаун</title>
+<style>
+  body { margin: 0; height: 3000px; font: 16px sans-serif; }
+  #open { position: absolute; top: 1200px; left: 50px; width: 200px; height: 32px; }
+  #menu { position: absolute; top: 1236px; left: 50px; width: 200px; display: none; background: #eef; border: 1px solid #99a; }
+  .dd-option { height: 30px; line-height: 30px; padding-left: 8px; }
+</style></head>
+<body>
+  <!-- Опції приходять із мережі із випадковою затримкою (200-700 мс) і меню
+       закривається на будь-який scroll — як у багатьох popover/combobox. -->
+  <h1>Анкета</h1>
+  <button id="open">Країна ▾</button>
+  <div id="menu"></div>
+  <script>
+    window.picked = null; window.opened = 0;
+    const menu = document.getElementById('menu');
+    document.getElementById('open').addEventListener('click', async () => {
+      window.opened++;
+      const r = await fetch('/api/options?ms=' + (200 + Math.floor(Math.random() * 500)));
+      const opts = await r.json();
+      menu.innerHTML = opts.map((o) => '<div class="dd-option" data-v="' + o + '">' + o + '</div>').join('');
+      menu.style.display = 'block';
+    });
+    menu.addEventListener('click', (e) => {
+      const d = e.target.closest('.dd-option');
+      if (d) { window.picked = d.dataset.v; menu.style.display = 'none'; }
+    });
+    addEventListener('scroll', () => { menu.style.display = 'none'; });
+  </script>
+</body>
+</html>

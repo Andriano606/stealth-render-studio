@@ -2,1049 +2,121 @@
 <html lang="uk">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Playwright Demo</title>
-  <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f1115; color: #e6e8ee;
-      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-    }
-    header {
-      padding: 12px 16px; border-bottom: 1px solid #242833; background: #151821;
-      display: flex; gap: 10px; align-items: center; flex-shrink: 0;
-    }
-    header input {
-      flex: 1; padding: 11px 14px; font-size: 15px; border: 1px solid #2c3140;
-      border-radius: 10px; background: #0f1115; color: #e6e8ee; outline: none;
-    }
-    header input:focus { border-color: #4f7cff; }
-    header button {
-      padding: 11px 20px; font-size: 15px; font-weight: 600; border: none;
-      border-radius: 10px; background: #4f7cff; color: #fff; cursor: pointer;
-    }
-    header button:disabled { opacity: .5; cursor: default; }
-
-    .workspace { flex: 1; display: flex; min-height: 0; }
-
-    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .tabs {
-      display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid #242833;
-      background: #12141b; overflow-x: auto; flex-shrink: 0; min-height: 46px;
-    }
-    .tab {
-      padding: 7px 12px; font-size: 13px; border: 1px solid #2c3140; border-radius: 8px;
-      background: #0f1115; color: #aeb6c4; cursor: pointer; white-space: nowrap;
-      display: flex; align-items: center; gap: 6px;
-    }
-    .tab:hover { border-color: #3a4152; }
-    .tab.active { background: #223; border-color: #4f7cff; color: #fff; }
-    .tabs .empty { color: #5c6575; font-size: 13px; align-self: center; padding: 0 6px; }
-
-    .viewer {
-      flex: 1; overflow: auto; padding: 16px; display: flex; justify-content: center;
-      align-items: flex-start; background: #0b0d12; min-height: 0;
-    }
-    /* Завжди повна (реальна) ширина з вертикальною прокруткою. */
-    .viewer img { max-width: 100%; border-radius: 10px; border: 1px solid #242833; }
-    .viewer img.recording { cursor: crosshair; outline: 2px solid #ff5a5a; }
-    .viewer .placeholder { color: #5c6575; font-size: 15px; margin-top: 40px; }
-
-    /* Лог-консоль */
-    .console { border-top: 1px solid #242833; background: #0c0e13; display: flex; flex-direction: column; flex-shrink: 0; }
-    .console.collapsed .console-body { display: none; }
-    .console-head {
-      display: flex; align-items: center; gap: 10px; padding: 7px 12px; font-size: 12px;
-      color: #8b94a3; background: #12141b; border-bottom: 1px solid #1c2230;
-    }
-    .console-head button { background: none; border: 1px solid #2c3140; color: #aeb6c4; border-radius: 6px; cursor: pointer; font-size: 12px; padding: 3px 8px; }
-    .console-body { height: 170px; overflow-y: auto; padding: 8px 12px; font: 12px/1.6 ui-monospace, Menlo, monospace; }
-    .console-body .ln { white-space: pre-wrap; word-break: break-word; }
-    .console-body .ln.run-sep { color: #4f7cff; border-top: 1px dashed #2c3140; margin-top: 6px; padding-top: 6px; }
-    .console-body .ln.browser { color: #c9a36a; }
-    .console-body .ln.context { color: #6fb3ff; }
-    .console-body .ln.fp { color: #7ddba1; }
-    .console-body .ln.stealth { color: #d58cff; }
-    .console-body .ln.cookies { color: #ffb36b; }
-    .console-body .ln.nav, .console-body .ln.shot, .console-body .ln.info { color: #9aa4b2; }
-    .console-body .ln.warn { color: #e0a34a; }
-    .console-body .ln.error { color: #ff6b6b; }
-
-    /* Модалка-конфігуратор */
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 100; }
-    .overlay.open { display: flex; }
-    .modal { width: 820px; max-width: 96vw; height: 86vh; background: #151821; border: 1px solid #2c3140; border-radius: 14px; display: flex; flex-direction: column; }
-    .modal-head, .modal-foot { display: flex; align-items: center; gap: 10px; padding: 14px 18px; flex-shrink: 0; }
-    .modal-head { border-bottom: 1px solid #242833; }
-    .modal-foot { border-top: 1px solid #242833; }
-    .modal .x { background: none; border: none; color: #8b94a3; font-size: 18px; cursor: pointer; }
-
-    /* Панель пресетів над тілом модалки */
-    .cfg-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid #242833; background: #12141b; }
-    .cfg-presets .pre-label { font-size: 12px; color: #8b94a3; }
-    .cfg-presets .pre-btn {
-      padding: 6px 12px; font-size: 12.5px; font-weight: 600; border: 1px solid #2c3140;
-      border-radius: 8px; background: #0f1115; color: #e6e8ee; cursor: pointer;
-    }
-    .cfg-presets .pre-btn:hover { border-color: #4f7cff; background: #18203a; }
-    .cfg-presets .pre-btn.clear { color: #aeb6c4; }
-    .cfg-presets .pre-btn.active { border-color: #4f7cff; background: #223; color: #fff; }
-    .cfg-presets .pre-btn.active.dirty { border-color: #e0a34a; color: #ffcf8f; }
-
-    /* Двоколонкова розкладка: ліве меню категорій + права панель */
-    .cfg-wrap { flex: 1; display: flex; min-height: 0; }
-    .cfg-nav { width: 190px; flex-shrink: 0; border-right: 1px solid #242833; padding: 10px 8px; overflow-y: auto; background: #12141b; }
-    .cfg-nav .nav-item {
-      display: flex; align-items: center; gap: 8px; padding: 9px 11px; margin-bottom: 3px; border-radius: 8px;
-      font-size: 13px; color: #aeb6c4; cursor: pointer;
-    }
-    .cfg-nav .nav-item:hover { background: #1b2130; }
-    .cfg-nav .nav-item.active { background: #223; color: #fff; border: 1px solid #4f7cff; }
-    .cfg-main { flex: 1; padding: 18px 20px; overflow-y: auto; }
-    .cfg-main h3 { margin: 0 0 4px; font-size: 16px; }
-    .cfg-main .cat-desc { font-size: 12.5px; color: #8b94a3; margin-bottom: 16px; line-height: 1.5; }
-
-    .cfg-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; }
-    .cfg-row label { width: 180px; color: #aeb6c4; flex-shrink: 0; }
-    .cfg-row input[type=text], .cfg-row input[type=number] {
-      flex: 1; padding: 7px 9px; background: #0f1115; border: 1px solid #2c3140; border-radius: 7px; color: #e6e8ee; font-size: 13px;
-    }
-    .cfg-row .def { font-size: 11px; color: #5c6575; flex: 1; }
-    .cfg-badge { font-size: 11px; color: #7ddba1; }
-
-    /* Пресети */
-    .preset { border: 1px solid #2c3140; border-radius: 11px; padding: 14px; margin-bottom: 10px; background: #11141c; }
-    .preset .p-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .preset .p-name { font-size: 14px; font-weight: 700; flex: 1; }
-    .preset .p-desc { font-size: 12.5px; color: #8b94a3; line-height: 1.5; }
-    .preset .p-apply { padding: 7px 14px; background: #4f7cff; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
-    .preset.clear .p-apply { background: #2a2f3a; border: 1px solid #3a4152; color: #aeb6c4; }
-
-    .engine-opt {
-      display: flex; align-items: flex-start; gap: 10px; padding: 13px; margin-bottom: 10px;
-      border: 1px solid #2c3140; border-radius: 11px; background: #11141c; cursor: pointer; font-size: 13px;
-    }
-    .engine-opt.sel { border-color: #4f7cff; background: #18203a; }
-    .engine-opt input { margin-top: 3px; }
-    .engine-opt b { font-size: 14px; }
-
-    .btn-primary { padding: 9px 16px; background: #4f7cff; color: #fff; border: none; border-radius: 9px; font-weight: 600; cursor: pointer; }
-    .btn-ghost { padding: 9px 14px; background: #2a2f3a; color: #aeb6c4; border: 1px solid #3a4152; border-radius: 9px; cursor: pointer; }
-
-    /* Сайдбар */
-    .sidebar {
-      width: 340px; flex-shrink: 0; border-left: 1px solid #242833; background: #151821;
-      display: flex; flex-direction: column; min-height: 0;
-    }
-    .sb-head { padding: 12px; border-bottom: 1px solid #242833; flex-shrink: 0; }
-    #newPageBtn {
-      width: 100%; padding: 11px; font-size: 15px; font-weight: 600; border: none;
-      border-radius: 10px; background: #4f7cff; color: #fff; cursor: pointer;
-    }
-    #newPageBtn:disabled { opacity: .45; cursor: default; }
-
-    /* Сценарій */
-    .page { border: 1px solid #2c3550; border-radius: 11px; margin-bottom: 10px; background: #0f131c; overflow: hidden; }
-    .page.page-run { border-color: #4f7cff; }
-    .page-head { display: flex; align-items: center; gap: 6px; padding: 9px 8px 9px 6px; background: #141a28; }
-    .page-head .tg { border: none; background: none; color: #8b94a3; cursor: pointer; font-size: 12px; width: 16px; }
-    .page-head .pname { flex: 1; font-size: 14px; font-weight: 700; color: #e6e8ee; cursor: pointer; }
-    .page-head .pcount { font-size: 11px; color: #6b7686; margin-right: 4px; white-space: nowrap; }
-    .page-url { padding: 5px 12px 8px; font-size: 11px; color: #6fa8ff; word-break: break-all; border-bottom: 1px solid #1c2230; }
-    .page > .rec { margin: 8px 8px 0; }
-    .rec-bar2 { padding: 8px; }
-    .rec-add { width: 100%; padding: 8px; font-size: 13px; font-weight: 600; border: none; border-radius: 8px; background: #e53935; color: #fff; cursor: pointer; }
-    .rec-add.on { background: #2a2f3a; border: 1px solid #ff5a5a; color: #ff9b9b; }
-    .rec-add:disabled { opacity: .4; cursor: default; }
-
-    .live {
-      padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #242833;
-      color: #9aa4b2; flex-shrink: 0; min-height: 42px; display: flex; align-items: center;
-    }
-    .live .dot {
-      width: 9px; height: 9px; border-radius: 50%; background: #ff3b3b;
-      margin-right: 8px; animation: blink 1s infinite; flex-shrink: 0;
-    }
-    .live.playing { color: #9ad; } .live.playing .dot { background: #4f7cff; }
-    @keyframes blink { 50% { opacity: .25; } }
-
-    .sb-title { padding: 10px 14px 4px; font-size: 12px; color: #8b94a3; text-transform: uppercase; letter-spacing: .5px; }
-    .recs { flex: 1; overflow-y: auto; padding: 6px 10px 14px; }
-    .recs .none { color: #5c6575; font-size: 13px; text-align: center; padding: 12px; }
-
-    /* Дія */
-    .rec { border: 1px solid #242c3a; border-radius: 10px; margin-bottom: 8px; background: #11141c; overflow: hidden; }
-    .rec.rec-on { border-color: #ff5a5a; }
-    .rec.rec-run { border-color: #4f7cff; }
-    .rec-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 6px; }
-    .rec-head .tg { border: none; background: none; color: #8b94a3; cursor: pointer; font-size: 12px; width: 16px; }
-    .rec-head .name { flex: 1; font-size: 14px; font-weight: 600; color: #e6e8ee; cursor: pointer; }
-    .rec-head .meta { font-size: 11px; color: #6b7686; margin-right: 4px; white-space: nowrap; }
-    .rec.rec-run .rec-head .meta { color: #4f7cff; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .rec-head .op { border: none; background: none; cursor: pointer; font-size: 13px; padding: 3px 5px; border-radius: 6px; color: #7a8696; }
-    .rec-head .op:hover { background: #222a38; color: #e6e8ee; }
-    .rec-head .op.run { color: #67c98a; }
-    .rec-head .op:disabled { opacity: .35; cursor: default; }
-
-    .subs { list-style: none; margin: 0; padding: 2px 8px 8px 8px; border-top: 1px solid #1c2330; }
-    .subs li {
-      display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #c4ccd8;
-      padding: 5px 6px; border-radius: 6px; margin-top: 4px; background: #0f1115; border: 1px solid #1c2230;
-    }
-    .subs li .n { color: #5c6575; font-size: 10px; min-width: 15px; text-align: right; }
-    .subs li .desc { flex: 1; word-break: break-word; }
-    .subs li .badge { width: 14px; text-align: center; }
-    .subs li.running { border-color: #4f7cff; background: #18203a; color: #fff; } .subs li.running .badge { color: #6fa8ff; }
-    .subs li.done .badge { color: #4caf79; }
-    .subs li.failed { border-color: #5a2a2a; } .subs li.failed .badge { color: #ff6b6b; }
-    .subs li.skipped { opacity: .4; } .subs li.skipped .badge { color: #6b7686; }
-    .subs li .op { border: none; background: none; cursor: pointer; font-size: 12px; color: #6b7686; padding: 1px 4px; border-radius: 5px; }
-    .subs li .op:hover { background: #222a38; color: #e6e8ee; }
-    .subs .empty { color: #5c6575; justify-content: center; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#151821" />
+  <link rel="icon" href="data:," />
+  <title>Stealth Render Studio</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/recorder.css" data-recorder-css />
+  <link rel="stylesheet" href="/css/scenarios.css" data-css="scenarios" />
+  <!-- Уся логіка — ES-модулі в /js (без збірки). Точка входу: /js/app.js -->
+  <script type="module" src="/js/app.js"></script>
 </head>
-<body>
-  <header>
-    <b style="font-size:15px;">🎭 Stealth Render Studio</b>
-    <span style="flex:1"></span>
-    <button id="cfgBtn" type="button" title="Конфігуратор контексту" style="background:#2a2f3a;color:#aeb6c4;">⚙ Конфігуратор</button>
+<body data-pane="scenarios">
+  <a class="skip-link" href="#viewer">До перегляду</a>
+
+  <header class="app-header">
+    <h1 class="brand"><span aria-hidden="true">🎭</span><span class="brand-text"> Stealth Render Studio</span></h1>
+    <!-- Бейджі стану сервера: «лише в памʼяті», «● LIVE ×N», «сервер недоступний» (js/app.js) -->
+    <div id="hdrHealth" class="hdr-health" aria-live="polite"></div>
+    <span class="spacer"></span>
+    <!-- Чип активного конфігу (рушій · пресет / кастом / ● змінено); клік відкриває конфігуратор -->
+    <button id="hdrConfigChip" class="chip" type="button" aria-label="Активний конфіг — відкрити конфігуратор" title="Активний конфіг — відкрити конфігуратор">⚙ …</button>
+    <button id="cfgBtn" class="btn btn-secondary btn-icon" type="button" aria-label="Відкрити конфігуратор" title="Конфігуратор контексту">⚙<span class="label"> Конфігуратор</span></button>
   </header>
 
-  <input type="file" id="fileInput" style="display:none" />
+  <input type="file" id="fileInput" hidden />
 
-  <!-- Модалка-конфігуратор -->
-  <div class="overlay" id="cfgOverlay">
-    <div class="modal">
-      <div class="modal-head">
-        <b>⚙ Конфігуратор</b>
-        <span style="flex:1"></span>
-        <button id="cfgClose" class="x">✕</button>
-      </div>
-      <div class="cfg-presets" id="cfgPresets"><span class="pre-label">Пресети:</span></div>
-      <div class="cfg-wrap">
-        <div class="cfg-nav" id="cfgNav"></div>
-        <div class="cfg-main" id="cfgBody">завантаження…</div>
-      </div>
-      <div class="modal-foot">
-        <button id="cfgReset" class="btn-ghost">🧹 Скинути до голого Playwright</button>
-        <span style="flex:1"></span>
-        <button id="cfgSave" class="btn-primary">Зберегти й застосувати</button>
-      </div>
-    </div>
-  </div>
+  <!-- Каркас: ≥ 900 px — перегляд+логи зліва, сценарії справа; < 900 px — одна панель
+       за раз (body[data-pane]) і нижня навігація #paneNav. -->
+  <div class="workspace" id="workspace">
+    <!-- Статус «що відбувається зараз» (setLive) — видно з будь-якої панелі -->
+    <div class="live" id="live" role="status" aria-live="polite">Готово до роботи.</div>
 
-  <div class="workspace">
-    <div class="main">
-      <div class="tabs" id="tabs"><span class="empty">Скрінів поки немає</span></div>
-      <div class="viewer" id="viewer">
-        <div class="placeholder">Введи адресу вгорі й натисни «Підтвердити».</div>
-      </div>
-      <div class="console" id="console">
-        <div class="console-head">
-          <span>🧾 Логи (що саме робить Playwright і що підставляється)</span>
-          <span style="flex:1"></span>
-          <button id="consoleClear">очистити</button>
-          <button id="consoleToggle">▾</button>
+    <main class="pane pane-viewer" id="paneViewer">
+      <!-- #viewer: таби результатів + живий перегляд і тулбар запису (recorder.js) -->
+      <section id="viewer" class="viewer-panel" aria-label="Перегляд">
+        <div class="tabs-bar">
+          <div class="tabs" id="tabs" role="tablist" aria-label="Скріни результатів"></div>
+          <span class="tabs-count" id="tabsCount" aria-label="Скрінів (ліміт)"></span>
+          <button id="tabsCloseAll" class="tabs-closeall" type="button" aria-label="Закрити всі скріни" title="Закрити всі скріни" hidden>✕ всі</button>
         </div>
-        <div class="console-body" id="consoleBody"></div>
-      </div>
-    </div>
+        <div id="recToolbar" class="rec-toolbar" role="toolbar" aria-label="Запис" hidden></div>
+        <div id="liveHost" class="live-host" hidden></div>
+        <div id="resultView" class="result-view" role="tabpanel" aria-label="Скрін результату"></div>
+      </section>
+    </main>
 
-    <aside class="sidebar">
+    <section class="pane pane-logs console" id="console" aria-label="Логи">
+      <div class="console-head">
+        <span class="title" title="Що робить Playwright і що підставляється">🧾 Логи</span>
+        <div class="console-filters" id="consoleFilters" role="group" aria-label="Фільтр логів за видом"></div>
+        <div class="console-acts">
+          <button id="consoleCopy" type="button" aria-label="Копіювати видимі логи" title="Копіювати видимі (за фільтром) рядки">⧉ копіювати</button>
+          <button id="consoleClear" type="button" aria-label="Очистити логи" title="Очистити">🗑<span class="label"> очистити</span></button>
+          <button id="consoleToggle" type="button" aria-label="Згорнути логи" aria-expanded="true" aria-controls="consoleBody">▾</button>
+        </div>
+      </div>
+      <div class="console-wrap">
+        <div class="console-body" id="consoleBody" role="log" aria-live="polite" tabindex="0" aria-label="Рядки логу"></div>
+        <button id="consoleJump" class="console-jump" type="button" hidden>↓ нові рядки</button>
+      </div>
+    </section>
+
+    <aside class="pane pane-scenarios sidebar" id="paneScenarios" aria-label="Сценарії">
+      <div id="sbResizer" class="sb-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина панелі сценаріїв (стрілки ←/→, подвійний клік — скинути)" tabindex="0"></div>
       <div class="sb-head">
-        <button id="newPageBtn" type="button">➕ Новий сценарій</button>
+        <button id="newPageBtn" class="btn btn-primary" type="button">➕ Новий сценарій</button>
       </div>
-      <div class="live" id="live">Готово до роботи.</div>
-      <div class="sb-title" style="display:flex;align-items:center;gap:8px;">
-        <span style="flex:1">Сценарії → Дії → під-дії</span>
-        <label style="font-size:11px;text-transform:none;letter-spacing:0;color:#aeb6c4;cursor:pointer;display:flex;align-items:center;gap:5px;" title="Пропускати всі під-дії типу «рух» при виконанні">
-          <input type="checkbox" id="skipMoves"> без рухів
-        </label>
+      <div class="sb-title">
+        <span>Сценарії → Дії → під-дії</span>
       </div>
-      <div class="recs" id="pagesEl"><div class="none">Немає сценаріїв.<br>Натисни «➕ Новий сценарій».</div></div>
+      <div class="recs" id="pagesEl"></div>
     </aside>
+
+    <!-- < 900 px: перемикач панелей (знизу, під великий палець) -->
+    <nav class="pane-nav" id="paneNav" role="tablist" aria-label="Панелі">
+      <button type="button" role="tab" data-pane="scenarios" aria-controls="paneScenarios" aria-selected="true">
+        <span class="pn-ico" aria-hidden="true">📋</span><span class="pn-label">Сценарії</span><span class="nav-badge" hidden></span>
+      </button>
+      <button type="button" role="tab" data-pane="viewer" aria-controls="paneViewer" aria-selected="false" tabindex="-1">
+        <span class="pn-ico" aria-hidden="true">🖼</span><span class="pn-label">Перегляд</span><span class="nav-badge" hidden></span>
+      </button>
+      <button type="button" role="tab" data-pane="logs" aria-controls="console" aria-selected="false" tabindex="-1">
+        <span class="pn-ico" aria-hidden="true">🧾</span><span class="pn-label">Логи</span><span class="nav-badge" hidden></span>
+      </button>
+    </nav>
   </div>
 
-  <script>
-    const tabsEl = document.getElementById('tabs');
-    const viewerEl = document.getElementById('viewer');
-    const newPageBtn = document.getElementById('newPageBtn');
-    const liveEl = document.getElementById('live');
-    const pagesEl = document.getElementById('pagesEl');
+  <!-- Конфігуратор -->
+  <dialog id="cfgDialog" class="modal cfg-modal" aria-labelledby="cfgTitle">
+    <div class="modal-head">
+      <h2 id="cfgTitle">⚙ Конфігуратор</h2>
+      <button id="cfgClose" class="x" type="button" aria-label="Закрити конфігуратор">✕</button>
+    </div>
+    <div class="cfg-presets" id="cfgPresets" role="group" aria-label="Пресети"></div>
+    <div id="cfgAlert" class="cfg-alert" role="alert" hidden></div>
+    <div class="cfg-wrap">
+      <div class="cfg-nav" id="cfgNav" role="tablist" aria-label="Категорії"></div>
+      <div class="cfg-main" id="cfgBody" role="tabpanel" tabindex="-1">завантаження…</div>
+    </div>
+    <div class="modal-foot cfg-foot">
+      <button id="cfgReset" class="btn btn-ghost" type="button" title="Скинути до голого Playwright (пресет «Clear all»)">🧹<span class="cfg-reset-label"> Скинути до голого Playwright</span></button>
+      <span id="cfgHint" class="cfg-hint" aria-live="polite"></span>
+      <div class="cfg-foot-acts">
+        <button id="cfgSaveNew" class="btn btn-secondary" type="button" hidden>➕ Зберегти як новий пресет</button>
+        <button id="cfgUpdatePreset" class="btn btn-secondary" type="button" hidden>💾 Оновити пресет</button>
+        <button id="cfgSave" class="btn btn-primary" type="button">Застосувати</button>
+      </div>
+    </div>
+    <div id="cfgBusy" class="cfg-busy" hidden><span class="spinner" aria-hidden="true"></span><span class="busy-text">Застосовую…</span></div>
+  </dialog>
 
-    let screens = [];      // {id,label,src,url}
-    let activeId = null;
-    let seq = 0;
-
-    // Модель: Сценарії → Дії (recs) → під-дії (subs)
-    let pages = [];        // {id,name,url,expanded,running,recs:[{id,name,subs,expanded,isRecording,running}]}
-    let pageCounter = 0;
-
-    // Запам'ятовування стану згорнуто/розгорнуто (Сторінок і Дій) у localStorage.
-    let expandState = {};
-    try { expandState = JSON.parse(localStorage.getItem('expandState') || '{}'); } catch (_e) { expandState = {}; }
-    if (!expandState.p) expandState.p = {};
-    if (!expandState.r) expandState.r = {};
-    function getExpand(kind, id, def) { const v = expandState[kind][id]; return v === undefined ? def : v; }
-    function setExpand(kind, id, val) { expandState[kind][id] = val; try { localStorage.setItem('expandState', JSON.stringify(expandState)); } catch (_e) {} }
-    let recCounter = 0;
-    let recording = false;
-    let running = false;
-    let curPage = null;    // Сценарій, у який записуємо
-    let curRec = null;     // Дія, яку зараз записуємо
-    let lastMoveT = 0;
-    let recordImg = null;
-
-    // ---------- Скріни ----------
-    function addScreen(label, src, url) {
-      const id = ++seq;
-      screens.unshift({ id, label, src, url });
-      activeId = id; renderTabs(); showActive();
-    }
-    function renderTabs() {
-      if (!screens.length) { tabsEl.innerHTML = '<span class="empty">Скрінів поки немає</span>'; return; }
-      tabsEl.innerHTML = '';
-      screens.forEach((s) => {
-        const t = document.createElement('div');
-        t.className = 'tab' + (s.id === activeId ? ' active' : '');
-        const ico = s.label.startsWith('🎬') ? '🎬' : '📸';
-        t.innerHTML = '<span>' + ico + '</span>' + escapeHtml(s.label.replace(/^🎬\s*/, ''));
-        t.addEventListener('click', () => { activeId = s.id; renderTabs(); showActive(); });
-        tabsEl.appendChild(t);
-      });
-    }
-    function showActive() {
-      const s = screens.find(x => x.id === activeId);
-      if (!s) { viewerEl.innerHTML = '<div class="placeholder">Немає скріна.</div>'; return; }
-      viewerEl.innerHTML = '';
-      const img = document.createElement('img');
-      img.src = s.src; img.alt = s.label;
-      viewerEl.appendChild(img);
-      recordImg = img;
-      if (recording) img.classList.add('recording');
-      updateRecBtn();
-    }
-
-
-    // ---------- Лог-консоль ----------
-    const consoleEl = document.getElementById('console');
-    const consoleBody = document.getElementById('consoleBody');
-    function logLine(kind, text) {
-      const d = document.createElement('div');
-      d.className = 'ln ' + (kind || 'info');
-      d.textContent = text;
-      consoleBody.appendChild(d);
-      consoleBody.scrollTop = consoleBody.scrollHeight;
-    }
-    function logRunSep(label) { logLine('run-sep', '── ' + label + ' ──'); }
-    function logMany(arr) { (arr || []).forEach(l => logLine(l.kind, l.text)); }
-    document.getElementById('consoleClear').addEventListener('click', () => { consoleBody.innerHTML = ''; });
-    document.getElementById('consoleToggle').addEventListener('click', (e) => {
-      const c = consoleEl.classList.toggle('collapsed');
-      e.target.textContent = c ? '▸' : '▾';
-    });
-
-    // ---------- Опис під-дій ----------
-    function subLabel(a) {
-      if (a.type === 'move')  return '🖱️ рух → ' + a.x + ', ' + a.y;
-      if (a.type === 'click') return '👆 клік → ' + a.x + ', ' + a.y;
-      if (a.type === 'text') {
-        if (a.random === 'digit')  return '🎲 рандомна цифра (0–9)';
-        if (a.random === 'letter') return '🎲 рандомна літера (a–z)';
-        return '⌨️ текст: «' + a.text + '»';
-      }
-      if (a.type === 'key')   return '⌨️ клавіша: ' + a.key;
-      if (a.type === 'file')  return '📎 файл: ' + (a.filename || '—');
-      return a.type;
-    }
-    function badge(s) { return s === 'running' ? '▶' : s === 'done' ? '✓' : s === 'failed' ? '✗' : s === 'skipped' ? '⏭' : ''; }
-
-    // Глобальний перемикач «без рухів» (пропускати під-дії type:'move'), memorizable.
-    const skipMovesEl = document.getElementById('skipMoves');
-    skipMovesEl.checked = localStorage.getItem('skipMoves') === '1';
-    skipMovesEl.addEventListener('change', () => localStorage.setItem('skipMoves', skipMovesEl.checked ? '1' : '0'));
-
-    // ---------- Рендер списку Сторінок → Дій → під-дій ----------
-    function renderPages() {
-      if (!pages.length) {
-        pagesEl.innerHTML = '<div class="none">Немає сценаріїв.<br>Натисни «➕ Новий сценарій».</div>';
-        return;
-      }
-      const busy = running || recording;
-      pagesEl.innerHTML = '';
-      pages.forEach((page) => {
-        const pbox = document.createElement('div');
-        pbox.className = 'page' + (page.running ? ' page-run' : '');
-
-        const phead = document.createElement('div');
-        phead.className = 'page-head';
-        phead.innerHTML =
-          '<button class="tg">' + (page.expanded ? '▾' : '▸') + '</button>' +
-          '<span class="pname">' + escapeHtml(page.name) + '</span>' +
-          '<span class="pcount">' + page.recs.length + ' Дій</span>';
-        phead.querySelector('.tg').addEventListener('click', () => { page.expanded = !page.expanded; setExpand('p', page.id, page.expanded); renderPages(); });
-        phead.querySelector('.pname').addEventListener('click', () => { page.expanded = !page.expanded; setExpand('p', page.id, page.expanded); renderPages(); });
-        phead.appendChild(mkOp('▶ Старт', 'Запустити послідовність (або просто відкрити URL)', 'run', () => runPage(page.id), busy));
-        phead.appendChild(mkOp('✎', 'Перейменувати / змінити URL', '', () => editPage(page), busy));
-        phead.appendChild(mkOp('✕', 'Видалити сценарій', '', () => { pages = pages.filter(x => x.id !== page.id); renderPages(); removePage(page.id); }, busy));
-        pbox.appendChild(phead);
-
-        const urlDiv = document.createElement('div');
-        urlDiv.className = 'page-url';
-        urlDiv.textContent = '🔗 ' + page.url;
-        pbox.appendChild(urlDiv);
-
-        if (page.expanded) {
-          page.recs.forEach((rec) => pbox.appendChild(renderRec(page, rec, busy)));
-          const bar = document.createElement('div');
-          bar.className = 'rec-bar2';
-          const isHere = recording && curPage === page;
-          const b = document.createElement('button');
-          b.className = 'rec-add' + (isHere ? ' on' : '');
-          b.textContent = isHere ? '⏹ Зупинити запис' : '⏺ Запис нової Дії';
-          b.disabled = running || (recording && !isHere);
-          b.addEventListener('click', () => (isHere ? stopRec() : startRecInPage(page)));
-          bar.appendChild(b);
-          pbox.appendChild(bar);
-        }
-        pagesEl.appendChild(pbox);
-      });
-    }
-
-    function renderRec(page, rec, busy) {
-      const box = document.createElement('div');
-      box.className = 'rec' + (rec.isRecording ? ' rec-on' : '') + (rec.running ? ' rec-run' : '');
-      const head = document.createElement('div');
-      head.className = 'rec-head';
-      head.innerHTML =
-        '<button class="tg">' + (rec.expanded ? '▾' : '▸') + '</button>' +
-        '<span class="name">' + escapeHtml(rec.name) + '</span>' +
-        '<span class="meta">' + (rec.running
-          ? ((rec.runCur || 0) + '/' + (rec.runTotal != null ? rec.runTotal : rec.subs.length))
-          : (rec.subs.length + ' під-дій')) + '</span>';
-      head.querySelector('.tg').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
-      head.querySelector('.name').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
-      head.appendChild(mkOp('▶', 'Виконати до цієї Дії включно', 'run', () => runPage(page.id, rec.id), busy || !rec.subs.length));
-      head.appendChild(mkOp('📎', 'Додати файл для завантаження', '', () => addFileToRec(page, rec), busy));
-      head.appendChild(mkOp('✎', 'Перейменувати', '', () => { const v = prompt('Назва Дії:', rec.name); if (v) { rec.name = v; renderPages(); persistPage(page); } }, busy));
-      head.appendChild(mkOp('✕', 'Видалити Дію', '', () => { page.recs = page.recs.filter(x => x.id !== rec.id); renderPages(); persistPage(page); }, busy));
-      box.appendChild(head);
-      if (rec.expanded) {
-        const ul = document.createElement('ul');
-        ul.className = 'subs';
-        if (!rec.subs.length) ul.innerHTML = '<li class="empty">порожньо</li>';
-        else rec.subs.forEach((a, i) => {
-          const li = document.createElement('li');
-          if (a.status) li.className = a.status;
-          li.innerHTML =
-            '<span class="n">' + (i + 1) + '</span>' +
-            '<span class="desc">' + escapeHtml(subLabel(a)) + '</span>' +
-            '<span class="badge">' + badge(a.status) + '</span>';
-          if (!busy) {
-            if (a.type === 'text') {
-              const mode = a.random || 'fixed';
-              const icon = mode === 'digit' ? '🎲0-9' : mode === 'letter' ? '🎲a-z' : '🔒';
-              li.appendChild(mkOp(icon, 'Режим: фікс → рандом цифра → рандом літера', '', () => {
-                a.random = a.random === 'digit' ? 'letter' : (a.random === 'letter' ? undefined : 'digit');
-                renderPages(); persistPage(page);
-              }, false));
-            }
-            if (a.type === 'click') {
-              li.appendChild(mkOp((a.waitResponse ? '☑' : '☐') + '⏳',
-                'Чекати відповідь сервера після цього кліку (для сабміт-кнопки). За замовчуванням вимкнено.',
-                a.waitResponse ? 'run' : '', () => {
-                  a.waitResponse = !a.waitResponse; renderPages(); persistPage(page);
-                }, false));
-            }
-            li.appendChild(mkOp('✎', 'Редагувати', '', () => editSub(page, rec, i), false));
-            li.appendChild(mkOp('✕', 'Видалити', '', () => { rec.subs.splice(i, 1); renderPages(); persistPage(page); }, false));
-          }
-          ul.appendChild(li);
-        });
-        box.appendChild(ul);
-      }
-      return box;
-    }
-    function editPage(page) {
-      const name = prompt('Назва сценарію:', page.name); if (name === null) return;
-      const url = prompt('Стартовий URL сценарію:', page.url); if (url === null) return;
-      page.name = name.trim() || page.name;
-      page.url = url.trim() || page.url;
-      renderPages(); persistPage(page);
-    }
-    function mkOp(txt, title, cls, fn, disabled) {
-      const b = document.createElement('button');
-      b.className = 'op' + (cls ? ' ' + cls : ''); b.textContent = txt; b.title = title;
-      b.disabled = !!disabled;
-      if (!disabled) b.addEventListener('click', fn);
-      return b;
-    }
-    function editSub(page, rec, i) {
-      const a = rec.subs[i];
-      if (a.type === 'move' || a.type === 'click') {
-        const v = prompt('Координати x, y:', a.x + ', ' + a.y); if (!v) return;
-        const m = v.split(',').map(s => parseInt(s.trim(), 10));
-        if (m.length === 2 && !isNaN(m[0]) && !isNaN(m[1])) { a.x = m[0]; a.y = m[1]; }
-      } else if (a.type === 'text') {
-        const v = prompt('Текст:', a.text); if (v !== null) a.text = v;
-      } else if (a.type === 'key') {
-        const v = prompt('Клавіша (Enter, Tab, Space, ArrowDown…):', a.key); if (v) a.key = v;
-      }
-      renderPages(); persistPage(page);
-    }
-
-    // ---------- Запис нової Дії ----------
-    function imgCoords(e) {
-      const rect = recordImg.getBoundingClientRect();
-      const sx = recordImg.naturalWidth / rect.width;
-      const sy = recordImg.naturalHeight / rect.height;
-      // sw/sh — розміри скриншота, у ПІКСЕЛЯХ якого записано координати.
-      // Реплей за ними точно масштабує координати у CSS незалежно від рушія/DPR.
-      return {
-        x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy),
-        sw: recordImg.naturalWidth, sh: recordImg.naturalHeight,
-      };
-    }
-    function onMove(e) {
-      const now = performance.now();
-      if (now - lastMoveT < 90) return;
-      lastMoveT = now; const { x, y, sw, sh } = imgCoords(e); pushSub({ type: 'move', x, y, sw, sh });
-    }
-    function onClick(e) { const { x, y, sw, sh } = imgCoords(e); pushSub({ type: 'click', x, y, sw, sh }); }
-    function onKey(e) {
-      const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
-      if (printable) { pushSub({ type: 'text', text: e.key }); return; }
-      const nav = ['Enter','Tab','Backspace','Delete','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '];
-      if (nav.includes(e.key)) e.preventDefault();
-      pushSub({ type: 'key', key: e.key === ' ' ? 'Space' : e.key });
-    }
-    function pushSub(a) { curRec.subs.push(a); renderPages(); }
-
-    // ---------- Додавання файлу (під-дія type: 'file') ----------
-    const fileInput = document.getElementById('fileInput');
-    let fileTarget = null; // {page, rec}
-    function addFileToRec(page, rec) {
-      fileTarget = { page, rec };
-      fileInput.value = '';
-      fileInput.click();
-    }
-    fileInput.addEventListener('change', async () => {
-      const f = fileInput.files[0];
-      const tgt = fileTarget; fileTarget = null;
-      if (!f || !tgt) return;
-      const { page, rec } = tgt;
-      setLive('Завантажую файл «' + f.name + '» (' + (f.size / 1048576).toFixed(1) + ' МБ)…', false, true);
-      try {
-        // Шлемо файл як бінарний стрім — браузер не тримає base64 у памʼяті,
-        // тож великі PDF не кладуть вкладку. Імʼя — у заголовку.
-        const resp = await fetch('/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream', 'x-filename': encodeURIComponent(f.name) },
-          body: f,
-        });
-        const d = await resp.json();
-        if (!d.ok) { setLive('Помилка завантаження: ' + (d.error || ''), false); return; }
-        rec.expanded = true;
-        rec.subs.push({ type: 'file', fileId: d.fileId, filename: d.filename });
-        renderPages(); persistPage(page);
-        setLive('Файл «' + d.filename + '» додано до «' + rec.name + '».', false);
-      } catch (e) { setLive('Помилка: ' + e.message, false); }
-    });
-
-    // Запис нової Дії в конкретний сценарій (на поточному скріні)
-    function startRecInPage(page) {
-      if (!recordImg) { setLive('Спершу зроби рендер (введи URL вгорі), щоб було по чому клікати.', false); return; }
-      recording = true; curPage = page;
-      curRec = { id: ++recCounter, name: 'Дія ' + recCounter, subs: [], expanded: true, isRecording: true };
-      page.recs.push(curRec); page.expanded = true;
-      setExpand('r', curRec.id, true); setExpand('p', page.id, true);
-      renderPages();
-      recordImg.classList.add('recording');
-      setLive('Запис «' + curRec.name + '» у «' + page.name + '»… клікай по скріну, друкуй.', false);
-      recordImg.addEventListener('mousemove', onMove);
-      recordImg.addEventListener('click', onClick);
-      document.addEventListener('keydown', onKey);
-    }
-    function stopRec() {
-      recording = false;
-      detach();
-      const page = curPage;
-      if (curRec && !curRec.subs.length) {
-        page.recs = page.recs.filter(x => x.id !== curRec.id); // порожню Дію не зберігаємо
-        setLive('Порожній запис скасовано.', false);
-      } else {
-        curRec.isRecording = false;
-        setLive('Збережено «' + curRec.name + '» (' + curRec.subs.length + ' під-дій).', false);
-        persistPage(page);
-      }
-      curRec = null; curPage = null; renderPages();
-    }
-    function detach() {
-      if (recordImg) {
-        recordImg.removeEventListener('mousemove', onMove);
-        recordImg.removeEventListener('click', onClick);
-        recordImg.classList.remove('recording');
-      }
-      document.removeEventListener('keydown', onKey);
-    }
-
-    // Створення нового сценарію
-    newPageBtn.addEventListener('click', () => {
-      if (recording || running) return;
-      const def = (screens.find(s => s.id === activeId) || {}).url || '';
-      const url = prompt('Стартовий URL сценарію:', def);
-      if (url === null) return;
-      const page = { id: ++pageCounter, name: 'Сценарій ' + pageCounter, url: url.trim(), expanded: true, recs: [] };
-      setExpand('p', page.id, true);
-      pages.push(page);
-      renderPages(); persistPage(page);
-      setLive('Створено «' + page.name + '». Зроби рендер і тисни «⏺ Запис нової Дії».', false);
-    });
-
-    // ---------- Виконання Сценарію ----------
-    // Старт сценарію: відкриваємо його стартовий URL і послідовно проганяємо під-дії
-    // всіх Дій по порядку (накопичувальний ланцюг у межах сценарію). Можна виконати
-    // і частково — до певної Дії включно (кнопка ▶ на самій Дії).
-    async function runPage(pageId, uptoRecId) {
-      if (running || recording) return;
-      const page = pages.find(p => p.id === pageId);
-      if (!page) return;
-      let recs = page.recs;
-      if (uptoRecId != null) { const idx = page.recs.findIndex(r => r.id === uptoRecId); recs = page.recs.slice(0, idx + 1); }
-
-      // Плоский список під-дій + мапа: глобальний індекс → {rec, subIndex}
-      // НЕ розкриваємо Дії під час запуску — замість цього показуємо маленький
-      // прогрес (напр. 7/22) у заголовку кожної Дії.
-      const flat = [], map = [];
-      recs.forEach((rec) => {
-        rec.running = true;
-        let recTotal = 0;
-        rec.subs.forEach((a, si) => {
-          if (skipMovesEl.checked && a.type === 'move') { a.status = 'skipped'; return; } // пропускаємо рухи
-          a.status = 'idle'; recTotal++;
-          // gid = id Дії: сервер за ним визначає простір координат для старих записів
-          map.push({ rec, si, recPos: recTotal }); flat.push({ ...a, gid: rec.id });
-        });
-        rec.runTotal = recTotal; rec.runCur = 0;
-      });
-      // Якщо під-дій немає — просто відкриваємо стартовий URL і робимо скриншот.
-
-      running = true; page.running = true;
-      renderPages();
-      logRunSep('Старт «' + page.name + '» — ' + recs.length + ' Дій, ' + flat.length + ' під-дій' + (flat.length ? '' : ' (лише відкриття URL)'));
-      logLine('info', '⚙ Пресет: ' + await ensureCurrentPreset());
-      setLive(flat.length ? 'Виконую «' + page.name + '»: відкриваю стартову сторінку…' : 'Відкриваю «' + page.name + '»…', true);
-
-      const ctx = { page, map, total: flat.length };
-      try {
-        const r = await fetch('/replay', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: page.url, actions: flat }),
-        });
-        const reader = r.body.getReader();
-        const dec = new TextDecoder(); let buf = '';
-        while (true) {
-          const { value, done } = await reader.read(); if (done) break;
-          buf += dec.decode(value, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-            if (line) handleEvent(ctx, JSON.parse(line));
-          }
-        }
-      } catch (err) { setLive('Помилка виконання: ' + err.message, false); }
-      finally {
-        running = false; page.running = false; recs.forEach(r => r.running = false);
-        renderPages();
-      }
-    }
-    function handleEvent(ctx, ev) {
-      if (ev.event === 'log') {
-        logLine(ev.kind, ev.text);
-      } else if (ev.event === 'status' || ev.event === 'opened') {
-        setLive('«' + ctx.page.name + '»: ' + (ev.text || '…'), true);
-      } else if (ev.event === 'action') {
-        const { rec, si, recPos } = ctx.map[ev.index];
-        rec.subs[si].status = 'running'; rec.runCur = recPos; renderPages();
-        setLive('«' + rec.name + '» — крок ' + (ev.index + 1) + '/' + ctx.total + ': ' + subLabel(rec.subs[si]), true);
-      } else if (ev.event === 'done-action') {
-        const { rec, si } = ctx.map[ev.index];
-        rec.subs[si].status = ev.ok ? 'done' : 'failed'; renderPages();
-      } else if (ev.event === 'done') {
-        addScreen('🎬 ' + ctx.page.name + ' (' + ev.actionsReplayed + '/' + ev.actionsTotal + ')', ev.screenshot, ev.url);
-        setLive('«' + ctx.page.name + '» виконано ' + ev.actionsReplayed + '/' + ev.actionsTotal + ' за ' + (ev.timing.totalMs / 1000).toFixed(1) + ' с.', false);
-      } else if (ev.event === 'error') setLive('Помилка: ' + ev.message, false);
-    }
-
-    // ---------- Збереження Сторінок у БД ----------
-    function pagePayload(p) {
-      return {
-        name: p.name, url: p.url,
-        recs: p.recs.map(r => ({ id: r.id, name: r.name, subs: r.subs.map(({ status, ...a }) => a) })),
-      };
-    }
-    async function persistPage(p) {
-      try {
-        await fetch('/pages/' + p.id, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pagePayload(p)),
-        });
-      } catch (_e) {}
-    }
-    async function removePage(id) {
-      try { await fetch('/pages/' + id, { method: 'DELETE' }); } catch (_e) {}
-    }
-    async function loadPages() {
-      try {
-        const d = await (await fetch('/pages')).json();
-        pages = (d.pages || []).map(p => ({
-          id: Number(p.id), name: p.name, url: p.url, expanded: getExpand('p', Number(p.id), true),
-          recs: (p.recs || []).map(r => ({
-            id: Number(r.id), name: r.name,
-            subs: (r.subs || []).map(a => ({ ...a })), expanded: getExpand('r', Number(r.id), false),
-          })),
-        }));
-        pageCounter = pages.length ? Math.max(...pages.map(p => p.id)) : 0;
-        const rids = pages.flatMap(p => p.recs.map(r => r.id));
-        recCounter = rids.length ? Math.max(...rids) : 0;
-        setLive(d.db ? 'Сценарії завантажено з БД.' : 'БД не підключена — лише в пам\'яті.', false);
-      } catch (_e) { setLive('Не вдалося завантажити сценарії.', false); }
-      renderPages();
-    }
-
-    // ---------- Утиліти ----------
-    function updateRecBtn() { renderPages(); } // перемальовуємо (кнопки запису per-page)
-    function setLive(text, playing, spinning) {
-      liveEl.className = 'live' + (playing ? ' playing' : '');
-      liveEl.innerHTML = (playing || spinning ? '<span class="dot"></span>' : '') + escapeHtml(text);
-    }
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, c =>
-        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-    }
-
-    // ---------- Профіль: fingerprint реального браузера ----------
-    const profStatus = document.getElementById('profStatus');
-
-    // index.html виконується у ТВОЄМУ справжньому Chrome → зчитуємо його реальні
-    // задекларовані параметри й шлемо на сервер, щоб кожен контекст їх підставляв.
-    function captureFingerprint() {
-      return {
-        userAgent: navigator.userAgent,
-        locale: navigator.language || (navigator.languages && navigator.languages[0]) || 'en-US',
-        languages: navigator.languages ? Array.from(navigator.languages) : undefined,
-        timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        platform: navigator.platform,
-        vendor: navigator.vendor,
-        hardwareConcurrency: navigator.hardwareConcurrency,
-        deviceMemory: navigator.deviceMemory,
-        deviceScaleFactor: window.devicePixelRatio,
-        screen: { width: screen.width, height: screen.height, colorDepth: screen.colorDepth },
-      };
-    }
-    function showProfile(d) {
-      if (!profStatus) return;
-      const n = d.cookiesCount != null ? d.cookiesCount : (d.cookies || 0);
-      profStatus.textContent = 'Профіль: ' + (d.hasFingerprint ? 'fingerprint ✓' : '—') + ', cookies ' + n;
-    }
-    async function syncFingerprint() {
-      try {
-        const r = await fetch('/profile', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fingerprint: captureFingerprint() }),
-        });
-        showProfile(await r.json());
-      } catch (_e) { if (profStatus) profStatus.textContent = 'Профіль: помилка'; }
-    }
-    // ---------- Модалка-конфігуратор ----------
-    const cfgOverlay = document.getElementById('cfgOverlay');
-    const cfgNav = document.getElementById('cfgNav');
-    const cfgPresets = document.getElementById('cfgPresets');
-    const cfgBody = document.getElementById('cfgBody');
-    let cfgState = null, draft = null, activeCat = 'engine';
-    let presets = [], activePresetId = null, presetBaseline = null; // пресети з БД + стан активного
-    document.getElementById('cfgBtn').addEventListener('click', openConfig);
-    document.getElementById('cfgClose').addEventListener('click', () => cfgOverlay.classList.remove('open'));
-    cfgOverlay.addEventListener('click', (e) => { if (e.target === cfgOverlay) cfgOverlay.classList.remove('open'); });
-
-    const CATS = [
-      { key: 'engine', label: '🧩 Рушій' },
-      { key: 'launch', label: '🚀 Запуск' },
-      { key: 'stealth', label: '🕵️ Stealth' },
-      { key: 'behavior', label: '🧍 Поведінка' },
-      { key: 'fingerprint', label: '🧬 Fingerprint' },
-      { key: 'cookies', label: '🍪 Cookies' },
-    ];
-    // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
-    const configSig = (d) => JSON.stringify({ launch: d.launch, stealth: d.stealth, behavior: d.behavior, fingerprint: d.fingerprint });
-    const isDirty = () => activePresetId != null && presetBaseline != null && configSig(draft) !== presetBaseline;
-
-    async function openConfig() {
-      cfgOverlay.classList.add('open');
-      cfgNav.innerHTML = ''; cfgBody.textContent = 'завантаження…';
-      try {
-        cfgState = await (await fetch('/profile')).json();
-        draft = makeDraft(cfgState);
-        await loadPresets();
-        // Memorize: підсвічуємо ОСТАННІЙ вибраний пресет із localStorage (просто
-        // довіряємо збереженому вибору; baseline = поточний конфіг, тобто «чисто»).
-        const saved = Number(localStorage.getItem('activePresetId')) || null;
-        activePresetId = presets.some(p => p.id === saved) ? saved : null;
-        presetBaseline = activePresetId ? configSig(draft) : null;
-        renderPresets(); renderNav(); renderCategory();
-      } catch (e) { cfgBody.textContent = 'Помилка: ' + e.message; }
-    }
-    async function loadPresets() {
-      try { const d = await (await fetch('/presets')).json(); presets = d.presets || []; }
-      catch (_e) { presets = []; }
-    }
-    // Чи всі поля part збігаються з target (часткове порівняння).
-    function subsetEq(part, target) {
-      if (!part) return true;
-      for (const k of Object.keys(part)) {
-        if (JSON.stringify(part[k]) !== JSON.stringify((target || {})[k])) return false;
-      }
-      return true;
-    }
-    function presetMatches(body, prof) {
-      if (!body) return false;
-      if (body.clear) {
-        const d = prof.defaults || {};
-        return subsetEq(d.launch, prof.launch) && subsetEq(d.stealth, prof.stealth) && subsetEq(d.behavior, prof.behavior) && !prof.fingerprint;
-      }
-      return subsetEq(body.launch, prof.launch) && subsetEq(body.stealth, prof.stealth) && subsetEq(body.behavior, prof.behavior)
-        && (body.fingerprint === undefined || JSON.stringify(body.fingerprint) === JSON.stringify(prof.fingerprint));
-    }
-    // Визначає назву активного пресета за поточним профілем (або «кастом»).
-    async function detectActivePreset() {
-      try {
-        const prof = await (await fetch('/profile')).json();
-        if (!presets.length) await loadPresets();
-        const match = presets.find(p => presetMatches(p.body, prof));
-        return match ? match.name : 'кастом';
-      } catch (_e) { return '—'; }
-    }
-    // При старті сценарію: синхронізуємо сервер із ПОТОЧНИМ (запам'ятованим) пресетом,
-    // щоб сценарій точно пішов саме на ньому (localStorage міг розійтися з профілем).
-    async function ensureCurrentPreset() {
-      try {
-        if (!presets.length) await loadPresets();
-        const prof = await (await fetch('/profile')).json();
-        const savedId = Number(localStorage.getItem('activePresetId')) || null;
-        const p = presets.find(x => x.id === savedId);
-        if (p) {
-          if (!presetMatches(p.body, prof)) {
-            await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p.body) });
-            return p.name + ' (синхронізовано)';
-          }
-          return p.name;
-        }
-        const match = presets.find(x => presetMatches(x.body, prof));
-        return match ? match.name : 'кастом';
-      } catch (_e) { return '—'; }
-    }
-    function renderPresets() {
-      cfgPresets.innerHTML = '<span class="pre-label">Пресети:</span>';
-      const dirty = isDirty();
-      presets.forEach((p) => {
-        const btn = document.createElement('button');
-        const active = p.id === activePresetId;
-        btn.className = 'pre-btn' + (p.body && p.body.clear ? ' clear' : '') + (active ? ' active' : '') + (active && dirty ? ' dirty' : '');
-        btn.textContent = p.name + (active && dirty ? ' ●' : '');
-        if (!p.builtin) btn.title = '(кастомний) ' + p.name;
-        btn.addEventListener('click', () => applyPreset(p));
-        cfgPresets.appendChild(btn);
-      });
-      // Кнопки збереження — коли відхилились від активного пресета.
-      if (dirty) {
-        const active = presets.find(p => p.id === activePresetId);
-        const spacer = document.createElement('span'); spacer.style.flex = '1'; cfgPresets.appendChild(spacer);
-        if (active) {
-          const save = document.createElement('button');
-          save.className = 'pre-btn'; save.style.borderColor = '#2e7d32'; save.style.color = '#7ddba1';
-          save.textContent = '💾 Зберегти в «' + active.name + '»';
-          save.addEventListener('click', () => savePreset(active));
-          cfgPresets.appendChild(save);
-        }
-        const neu = document.createElement('button');
-        neu.className = 'pre-btn'; neu.style.borderColor = '#4f7cff';
-        neu.textContent = '➕ Новий пресет';
-        neu.addEventListener('click', createPreset);
-        cfgPresets.appendChild(neu);
-      }
-    }
-    function makeDraft(d) {
-      return {
-        launch: Object.assign({ engine: 'chromium', headless: true, siteIsolationDisabled: false, stealthPlugin: false, persistent: false }, d.launch || {}),
-        stealth: Object.assign({ webdriver: false, windowChrome: false }, d.stealth || {}),
-        behavior: Object.assign({ humanize: false }, d.behavior || {}),
-        fingerprint: d.fingerprint ? JSON.parse(JSON.stringify(d.fingerprint)) : null,
-        cookiesCount: d.cookiesCount || 0,
-        hasFingerprint: !!d.fingerprint,
-      };
-    }
-    function renderNav() {
-      cfgNav.innerHTML = '';
-      CATS.forEach(c => {
-        const el = document.createElement('div');
-        el.className = 'nav-item' + (c.key === activeCat ? ' active' : '');
-        el.textContent = c.label;
-        el.addEventListener('click', () => { activeCat = c.key; renderNav(); renderCategory(); });
-        cfgNav.appendChild(el);
-      });
-    }
-    const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
-    const chk = (lbl, path, on, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="checkbox" data-p="${path}" ${on ? 'checked' : ''}>${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
-    const txt = (lbl, path, v, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="text" data-p="${path}" value="${esc(v)}">${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
-    const num = (lbl, path, v, hint) => `<div class="cfg-row"><label>${lbl}</label><input type="number" data-p="${path}" value="${v == null ? '' : v}">${hint ? `<span class="def">${hint}</span>` : ''}</div>`;
-
-    function renderCategory() {
-      const L = draft.launch, st = draft.stealth, b = draft.behavior, fp = draft.fingerprint || {}, sc = fp.screen || {};
-      const isCfx = L.engine === 'camoufox';
-      const cfxNote = '<div class="cat-desc">🦊 Зараз обрано Camoufox — ці опції діють лише для Chromium. Camoufox має власний антидетект/fingerprint у рушії.</div>';
-      let html = '';
-      if (activeCat === 'engine') {
-        html = '<h3>Рушій</h3><div class="cat-desc">Зміна = перезапуск браузера.</div>';
-        const cur = L.engine === 'camoufox' ? 'camoufox' : 'chromium';
-        html +=
-          `<label class="engine-opt${cur === 'chromium' ? ' sel' : ''}"><input type="radio" name="eng" data-p="launch.engine" value="chromium"${cur === 'chromium' ? ' checked' : ''}>` +
-          `<span><b>🧩 Chromium</b> <span class="def">(за замовчуванням)</span><br><span class="def">Швидко, для звичайних сайтів. Теплий пул контекстів, усі stealth-опції нижче.</span></span></label>` +
-          `<label class="engine-opt${cur === 'camoufox' ? ' sel' : ''}"><input type="radio" name="eng" data-p="launch.engine" value="camoufox"${cur === 'camoufox' ? ' checked' : ''}>` +
-          `<span><b>🦊 Camoufox</b> <span class="def">(Firefox-антидетект)</span><br><span class="def">Повільніше, але проходить жорсткий Cloudflare. Без CDP (Juggler), fingerprint у C++. Ігнорує Chromium-опції.</span></span></label>`;
-        // Опції Camoufox — лише коли обрано Camoufox.
-        if (isCfx) {
-          html += '<div style="margin-top:8px"><div class="cat-desc">Опції Camoufox:</div>';
-          html += chk('humanize (рухи курсора в рушії)', 'launch.camoufoxHumanize', L.camoufoxHumanize !== false, 'для Cloudflare не потрібно (перевірено).');
-          html += chk('geoip (timezone/locale під IP)', 'launch.camoufoxGeoip', L.camoufoxGeoip !== false, 'для Cloudflare не потрібно (перевірено).');
-          html += '</div>';
-        } else {
-          html += '<div class="cat-desc" style="margin-top:8px">Chromium-опції — у вкладках «Запуск», «Stealth», «Fingerprint».</div>';
-        }
-      } else if (activeCat === 'launch') {
-        html = '<h3>Запуск браузера</h3><div class="cat-desc">Зміна більшості = перезапуск браузера.</div>';
-        html += chk('headless', 'launch.headless', L.headless !== false, 'дефолт: true (діє і для Camoufox).');
-        if (isCfx) { html += cfxNote; }
-        else {
-          html += chk('новий headless (--headless=new)', 'launch.newHeadless', L.newHeadless !== false, 'майже як справжній Chrome. Вимкнути = старий headless (детектованіший).');
-          html += chk('--disable-blink-features=AutomationControlled', 'launch.automationControlled', L.automationControlled !== false, 'прибирає сигнал автоматизації на рівні рушія.');
-          html += chk('реальний GPU (ANGLE Metal)', 'launch.realGpu', L.realGpu !== false, 'справжні пікселі Canvas/WebGL замість софтверного SwiftShader.');
-          html += chk('stealth-plugin (playwright-extra)', 'launch.stealthPlugin', L.stealthPlugin !== false, 'десятки анти-детект патчів.');
-        }
-      } else if (activeCat === 'stealth') {
-        html = '<h3>Stealth (JS-доповнення)</h3><div class="cat-desc">Наші ручні правки на рівні сторінки (Chromium).</div>';
-        if (isCfx) { html += cfxNote; }
-        else {
-          html += chk('navigator.webdriver = false', 'stealth.webdriver', st.webdriver, 'на прототипі (не own-property). Дефолт Playwright: true.');
-          html += chk('додати window.chrome', 'stealth.windowChrome', st.windowChrome, 'runtime/loadTimes/csi/app. Дефолт: відсутній у headless.');
-          html += chk('outerWidth/Height = реальні', 'stealth.outerWindow', st.outerWindow, 'у headless вони 0 — явний маячок.');
-          html += chk('permissions.query узгоджений', 'stealth.permissions', st.permissions, 'як у справжнього браузера.');
-          html += chk('видаляти window.__pwInitScripts', 'stealth.pwInitScripts', st.pwInitScripts, 'прямий підпис Playwright (створює addInitScript).');
-        }
-      } else if (activeCat === 'behavior') {
-        html = '<h3>Поведінка при відтворенні</h3><div class="cat-desc">Як виконуються записані дії (діє для обох рушіїв).</div>';
-        html += chk('людські рухи миші й затримки', 'behavior.humanize', b.humanize !== false, 'криві рухи, паузи «на роздуми», друк по буквах, скроли. Дефолт: миттєво.');
-      } else if (activeCat === 'fingerprint') {
-        html = '<h3>Fingerprint ' + (draft.hasFingerprint ? '<span class="cfg-badge">захоплено з твого Chrome</span>' : '<span class="def">(не задано)</span>') + '</h3>';
-        if (isCfx) { html += cfxNote; }
-        else {
-          html += '<div class="cat-desc">Задекларовані параметри браузера (Chromium).</div>';
-          html += txt('User-Agent', 'fingerprint.userAgent', fp.userAgent);
-          html += txt('locale', 'fingerprint.locale', fp.locale);
-          html += txt('timezoneId', 'fingerprint.timezoneId', fp.timezoneId);
-          html += txt('platform', 'fingerprint.platform', fp.platform);
-          html += txt('vendor', 'fingerprint.vendor', fp.vendor);
-          html += num('hardwareConcurrency', 'fingerprint.hardwareConcurrency', fp.hardwareConcurrency);
-          html += num('deviceMemory', 'fingerprint.deviceMemory', fp.deviceMemory);
-          html += num('deviceScaleFactor', 'fingerprint.deviceScaleFactor', fp.deviceScaleFactor);
-          html += num('screen width', 'fingerprint.screen.width', sc.width);
-          html += num('screen height', 'fingerprint.screen.height', sc.height);
-          html += num('screen colorDepth', 'fingerprint.screen.colorDepth', sc.colorDepth);
-        }
-      } else if (activeCat === 'cookies') {
-        html = '<h3>Cookies</h3><div class="cat-desc">Підставлені cookies/storageState (Chromium).</div>';
-        html += `<div class="cfg-row"><label>підставлено</label><span>${draft.cookiesCount || 0} шт.</span>${draft.cookiesCount ? ' <button class="btn-ghost" id="cfgClearCk" style="padding:4px 10px">очистити</button>' : ''}</div>`;
-      }
-      cfgBody.innerHTML = html;
-      const cc = document.getElementById('cfgClearCk');
-      if (cc) cc.addEventListener('click', async () => {
-        const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: null }) })).json();
-        draft.cookiesCount = 0; showProfile(d); renderCategory();
-      });
-    }
-
-    // Живе оновлення draft при зміні будь-якого поля (делегування на cfgBody).
-    cfgBody.addEventListener('input', (e) => {
-      const p = e.target.dataset.p; if (!p) return;
-      let val;
-      if (e.target.type === 'checkbox') val = e.target.checked;
-      else if (e.target.type === 'number') { const v = e.target.value.trim(); val = v === '' ? undefined : Number(v); }
-      else val = e.target.value; // text і radio (у radio value = рядок рушія)
-      setPath(draft, p, val);
-      if (p === 'launch.engine') renderCategory(); // підсвітити вибраний варіант
-      renderPresets(); // оновити стан активного пресета (dirty + кнопки збереження)
-    });
-    function setPath(obj, path, val) {
-      const parts = path.split('.'); let o = obj;
-      for (let i = 0; i < parts.length - 1; i++) { if (!o[parts[i]] || typeof o[parts[i]] !== 'object') o[parts[i]] = {}; o = o[parts[i]]; }
-      o[parts[parts.length - 1]] = val;
-    }
-
-    async function applyProfile(body, note) {
-      setLive((note || 'Застосовую конфіг') + '…', false, true);
-      const d = await (await fetch('/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-      showProfile(d);
-      cfgState = d; draft = makeDraft(d); renderNav(); renderCategory(); renderPresets();
-      logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
-      logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
-      if (d.launchError) {
-        logLine('error', '❌ Браузер не запустився: ' + d.launchError);
-        setLive('❌ Помилка запуску браузера: ' + d.launchError, false);
-        return d;
-      }
-      setLive((note || 'Конфіг') + ' застосовано' + (d.relaunched ? ' (перезапуск)' : '') + '.', false);
-      return d;
-    }
-    async function applyPreset(p) {
-      if (!p) return;
-      await applyProfile(p.body, 'Пресет «' + p.name + '»');
-      activePresetId = p.id || null;
-      if (p.id) localStorage.setItem('activePresetId', String(p.id)); else localStorage.removeItem('activePresetId');
-      presetBaseline = configSig(draft);
-      renderPresets();
-    }
-    async function savePreset(p) {
-      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint };
-      await fetch('/presets/' + p.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
-      await loadPresets();
-      presetBaseline = configSig(draft); // тепер чисто
-      renderPresets();
-      setLive('Збережено в пресет «' + p.name + '».', false);
-    }
-    async function createPreset() {
-      const name = prompt('Назва нового пресета:', '⭐ Мій пресет');
-      if (!name) return;
-      const body = { launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint };
-      const r = await (await fetch('/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, body }) })).json();
-      await loadPresets();
-      if (r.id) { activePresetId = r.id; localStorage.setItem('activePresetId', String(r.id)); presetBaseline = configSig(draft); }
-      renderPresets();
-      setLive('Створено пресет «' + name + '».', false);
-    }
-
-    document.getElementById('cfgSave').addEventListener('click', async () => {
-      await applyProfile({ launch: draft.launch, stealth: draft.stealth, behavior: draft.behavior, fingerprint: draft.fingerprint }, 'Конфіг');
-      cfgOverlay.classList.remove('open');
-    });
-    document.getElementById('cfgReset').addEventListener('click', () => {
-      const clear = presets.find(p => p.body && p.body.clear);
-      if (clear) applyPreset(clear); else applyProfile({ clear: true }, 'Скинуто');
-    });
-
-    // Старт: захоплюємо fingerprint і підтягуємо збережені Сценарії
-    syncFingerprint();
-    loadPages();
-  </script>
+  <!-- Корінь для <dialog>-діалогів (prompt/confirm/форми) — див. js/dialogs.js -->
+  <div id="dialogs"></div>
+  <!-- Тости (js/dialogs.js toast) -->
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 </body>
 </html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="uk" style="scroll-behavior:smooth">
+<head><meta charset="utf-8"><title>Плавний скрол</title>
+<style>
+  body { margin: 0; height: 4000px; font: 16px sans-serif; }
+  button { position: absolute; left: 100px; width: 200px; height: 40px; }
+</style></head>
+<body>
+  <!-- html{scroll-behavior:smooth}: window.scrollTo(0,y) лише стартує анімацію,
+       і scrollY одразу після нього — старий (причина «клік через раз»). -->
+  <h1>Сторінка з плавною прокруткою</h1>
+  <button id="b1" style="top:2000px">B1</button>
+  <button id="b2" style="top:600px">B2</button>
+  <button id="b3" style="top:3400px">B3</button>
+  <script>
+    window.clicks = [];
+    document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => window.clicks.push(b.id)));
+  </script>
+</body>
+</html>

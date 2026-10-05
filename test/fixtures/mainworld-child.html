@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><title>child</title>
+<script>
+/* Обгортки сторінки (як у антибота): фіксують виклики, у стеку яких видно Playwright-evaluate. */
+(() => {
+  window.__mw = [];
+  const wrap = (obj, name, label) => { const o = obj[name]; obj[name] = function (...a) { if (!window.__mwOff) { const st = new Error().stack || ""; window.__mw.push(label + (/UtilityScript|eval at evaluate|__playwright/.test(st) ? "|PW" : "|page")); } return o.apply(this, a); }; };
+  wrap(Document.prototype, "querySelectorAll", "qsa"); wrap(Element.prototype, "querySelectorAll", "qsaEl"); wrap(Document.prototype, "querySelector", "qs");
+  wrap(Document.prototype, "elementFromPoint", "efp"); wrap(Document.prototype, "elementsFromPoint", "efps");
+  wrap(window, "getComputedStyle", "gcs"); wrap(Element.prototype, "getBoundingClientRect", "gbcr");
+  wrap(window, "requestAnimationFrame", "raf"); wrap(window, "scrollTo", "scrollTo");
+  const d = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "innerText");
+  Object.defineProperty(HTMLElement.prototype, "innerText", { configurable: true, get() { if (!window.__mwOff) { const st = new Error().stack || ""; window.__mw.push("innerText" + (/UtilityScript|eval at evaluate|__playwright/.test(st) ? "|PW" : "|page")); } return d.get.call(this); } });
+})();
+</script>
+</head>
+<body style="margin:0">
+  <button id="cb" style="position:absolute;left:20px;top:20px;width:100px;height:30px">Child</button>
+  <script>window.clicks = []; document.getElementById('cb').addEventListener('click', () => clicks.push('cb'));</script>
+</body></html>

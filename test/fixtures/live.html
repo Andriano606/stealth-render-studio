@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Живий запис</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  .row { margin: 18px 20px; }
+  #banner { display: none; height: 300px; background: #fd8; }
+  .dups { display: flex; gap: 40px; margin: 18px 20px; }
+  .add { width: 120px; height: 36px; }
+  #frm { width: 520px; height: 140px; border: 3px solid #888; padding: 4px; }
+  .spacer { height: 40px; }
+</style></head>
+<body>
+  <!-- ?shift=1 — банер 300px зверху (усе зсувається вниз) + переставлені рядки:
+       координати запису тут промахуються, локатори — ні. Події кліків/змін
+       надсилаються на /log фікстурного сервера (щоб тест бачив результат /replay). -->
+  <div id="banner">Банер акції</div>
+  <div class="row" id="r-email"><label for="email">Email</label> <input id="email" name="email" autocomplete="off"></div>
+  <div class="row" id="r-country"><label for="country">Країна</label>
+    <select id="country"><option value="">—</option><option value="UA">Україна</option><option value="PL">Польща</option></select></div>
+  <div class="row" id="r-cv"><button type="button" id="cvbtn">Завантажити CV</button>
+    <input type="file" id="cv" style="display:none"> <span id="cvname"></span></div>
+  <div class="dups">
+    <div class="card"><div class="a"><div class="b"><div class="c"><div class="d"><button class="add">Додати</button></div></div></div></div></div>
+    <div class="card"><div class="a"><div class="b"><div class="c"><div class="d"><button class="add">Додати</button></div></div></div></div></div>
+    <div class="card"><div class="a"><div class="b"><div class="c"><div class="d"><button class="add">Додати</button></div></div></div></div></div>
+  </div>
+  <div class="row"><iframe id="frm" title="форма" src="live-child.html"></iframe></div>
+  <div class="spacer"></div>
+  <div class="row" id="r-submit"><button id="submit" class="css-1x2y3z">Submit Application</button></div>
+  <div style="height:600px"></div>
+  <script>
+    const report = (e) => { (window.events = window.events || []).push(e); fetch('/log?e=' + encodeURIComponent(e)).catch(() => {}); };
+    const $ = (id) => document.getElementById(id);
+    $('submit').onclick = () => report('submit:' + $('email').value);
+    $('country').onchange = () => report('country:' + $('country').value);
+    $('cvbtn').onclick = () => $('cv').click();
+    $('cv').onchange = () => { const f = $('cv').files[0]; $('cvname').textContent = f ? f.name : ''; report('cv:' + (f ? f.name : '')); };
+    document.querySelectorAll('.add').forEach((b, i) => { b.onclick = () => report('add' + i); });
+    addEventListener('message', (e) => report(String(e.data)));
+    if (new URLSearchParams(location.search).has('shift')) {
+      $('banner').style.display = 'block';
+      // переставляємо: submit вище за iframe, email нижче за країну
+      const sub = $('r-submit'); sub.parentNode.insertBefore(sub, document.querySelector('.dups'));
+      $('r-country').after($('r-email'));
+    }
+  </script>
+</body>
+</html>

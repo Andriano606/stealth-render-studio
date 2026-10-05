@@ -1,0 +1,242 @@
+/* recorder.css — живий запис (js/recorder.js): тулбар #recToolbar, живий перегляд #liveHost
+ * (скриншот viewport + оверлей: ripple кліку, номери записаних кліків, підсвітка під курсором,
+ * буфер друку), банери, поповер <select>. Токени — base.css. Підключається з recorder.js.
+ * Mobile-first: тулбар переноситься, підписи кнопок ховаються < 600 px (лишаються aria-label;
+ * «1:1» підписано завжди). ≥ 900 px — кадр вміщається у висоту панелі (без прокрутки панелі:
+ * колесо йде лише в сторінку), консоль на час LIVE згорнута.
+ */
+
+/* ---------- Режим LIVE у #viewer ---------- */
+#viewer.live-mode #tabs,
+#viewer.live-mode #resultView { display: none; }
+#viewer.live-mode { min-height: 0; }
+
+/* ---------- Тулбар ---------- */
+#recToolbar.rec-toolbar { flex-direction: column; align-items: stretch; gap: 6px; flex-shrink: 0; }
+.rt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.rt-head { gap: 8px; }
+.rt-live {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: .3px; white-space: nowrap;
+  background: var(--bg); border: 1px solid var(--border-strong); color: var(--text-muted);
+}
+.rt-live.on { background: rgba(255, 90, 90, .14); border-color: var(--rec); color: #ffb3b3; }
+.rt-live.on::first-letter { color: var(--rec); }
+.rt-live.paused { border-color: var(--warn); color: var(--warn-text); }
+.rt-live.closed { border-color: var(--border-hover); color: var(--text-dim); }
+.rt-engine {
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; white-space: nowrap;
+  border: 1px solid var(--border-strong); color: var(--text-muted); background: var(--bg);
+}
+.rt-title {
+  flex: 1; min-width: 0; font-size: 13px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rt-nav .rt-urlform { flex: 1; min-width: 0; display: flex; }
+.rt-url {
+  flex: 1; min-width: 0; min-height: 34px; padding: 4px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-size: 13px;
+}
+.rt-url:focus-visible { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
+.rt-acts { justify-content: space-between; row-gap: 6px; column-gap: 12px; }
+.rt-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-height: 34px; min-width: 34px; padding: 4px 8px; border-radius: var(--radius);
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--text-muted);
+  font-size: 12.5px; white-space: nowrap;
+}
+.rt-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-hover); }
+.rt-btn:disabled { opacity: .4; }
+.rt-btn.on, .rt-btn[aria-pressed="true"] { background: var(--bg-accent-weak); border-color: var(--accent); color: #fff; }
+.rt-btn.done { background: var(--accent-btn); border-color: var(--accent-btn); color: #fff; font-weight: 600; }
+.rt-btn.done:hover:not(:disabled) { background: var(--accent-btn-hover); color: #fff; }
+.rt-btn.icon .lbl { display: none; }
+.rt-btn .ic { font-size: 14px; line-height: 1; }
+.rt-btn .lbl { display: none; }
+.rt-btn.done .lbl, .rt-btn.kbd-only .lbl, .rt-btn.zoom-only .lbl { display: inline; }
+.rt-btn.kbd-only, .rt-btn.zoom-only { display: none; }
+@media (max-width: 899px) { .rt-btn.zoom-only { display: inline-flex; } }
+@media (pointer: coarse) {
+  .rt-btn { min-height: var(--touch); min-width: var(--touch); }
+  .rt-url { min-height: var(--touch); }
+  .rt-btn.kbd-only { display: inline-flex; }
+}
+@media (min-width: 600px) {
+  .rt-btn .lbl { display: inline; }
+  .rt-btn.icon .lbl { display: none; }
+}
+/* Вузький екран: компактніший заголовок (рушій — у лозі й чипі конфігу); бейдж LIVE/ПАУЗА лишається */
+@media (max-width: 599px) {
+  .rt-engine { display: none; }
+  .rt-title { font-size: 12px; }
+  #recToolbar.rec-toolbar { gap: 4px; padding: 6px 8px; }
+  .rt-row { gap: 4px; }
+}
+@media (min-width: 900px) {
+  #recToolbar.rec-toolbar { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .rt-head { flex: 1 1 260px; }
+  .rt-nav { flex: 2 1 360px; }
+  .rt-acts { flex: 1 1 100%; }
+}
+
+/* ---------- Живий перегляд ---------- */
+#liveHost.live-host { display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+@media (min-width: 900px) { #liveHost.live-host { padding: 14px; } }
+.live-banners { display: flex; flex-direction: column; gap: 6px; }
+.live-banners:empty { display: none; }
+.live-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--bg-elev);
+  font-size: 13px; color: var(--text-2);
+}
+.live-banner .txt { flex: 1 1 200px; min-width: 0; }
+.live-banner.warn { border-color: var(--warn); color: var(--warn-text); }
+.live-banner.error { border-color: var(--danger); color: var(--danger-soft); }
+.live-banner .x {
+  background: none; border: none; color: var(--text-dim); min-width: 30px; min-height: 30px; border-radius: var(--radius-s);
+}
+.live-banner .x:hover { color: var(--text); background: var(--bg-hover); }
+
+.live-stage {
+  position: relative; display: flex; justify-content: safe center; align-items: flex-start; min-width: 0;
+  min-height: 200px; border-radius: var(--radius-m); outline: none;
+}
+.live-stage:focus-visible .live-frame, .live-stage:focus .live-frame, .live-stage:focus-within .live-frame { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--rec); }
+.live-frame {
+  position: relative; display: inline-block; max-width: 100%; line-height: 0;
+  border-radius: var(--radius-m); overflow: hidden; background: #fff;
+  cursor: crosshair; touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.live-stage[data-phase="opening"] .live-frame, .live-stage[data-phase="closed"] .live-frame { cursor: default; }
+.live-stage[data-phase="closed"] .live-shot { filter: grayscale(.8) brightness(.7); }
+.live-shot { display: block; max-width: 100%; height: auto; border: 0; padding: 0; transition: opacity .15s; }
+.live-frame.busy .live-shot { opacity: .7; }
+
+/* 1:1 — зображення в натуральному розмірі, прокрутка всередині перегляду (не сторінки).
+   Лише < 900 px (на десктопі кнопки «1:1» немає — кадр вміщається у висоту). */
+@media (max-width: 899.98px) {
+  .live-stage.zoom-1 { overflow-x: auto; justify-content: flex-start; }
+  .live-stage.zoom-1 .live-frame, .live-stage.zoom-1 .live-shot { max-width: none; }
+  .live-stage.zoom-1 .live-frame { flex-shrink: 0; }
+}
+
+/* ≥ 900 px: увесь viewport сесії видно без прокрутки панелі — <img> зменшується у висоту
+   зі збереженням пропорцій (саме бокс <img>, не object-fit: мапінг кліків і оверлей
+   inset:0 рахуються від його content-box). Колесо над кадром завжди йде в сторінку. */
+@media (min-width: 900px) {
+  #viewer.live-mode #liveHost.live-host { overflow: hidden; }
+  #viewer.live-mode .live-stage { flex: 1 1 auto; min-height: 0; container-type: size; }
+  #viewer.live-mode .live-frame { max-height: 100cqh; }
+  #viewer.live-mode .live-shot { max-height: 100cqh; max-width: 100%; width: auto; height: auto; }
+  #viewer.live-mode .live-banners { flex-shrink: 0; max-height: 40%; overflow-y: auto; }
+}
+
+/* Оверлей рівно по content-box зображення */
+.live-overlay { position: absolute; inset: 0; pointer-events: none; line-height: normal; }
+.live-marks { position: absolute; inset: 0; }
+/* Маркер кліку — кільце (не накриває підпис кнопки), номер — бейдж зліва-зверху від точки */
+.live-mark {
+  position: absolute; width: 14px; height: 14px; transform: translate(-50%, -50%);
+  border: 2px solid var(--rec); border-radius: 50%; background: rgba(255, 90, 90, .15);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .75);
+}
+.live-mark::after {
+  content: attr(data-n); position: absolute; right: 100%; bottom: 100%; margin: 0 1px 1px 0;
+  min-width: 14px; padding: 0 3px; border-radius: 7px; background: var(--rec); color: #fff;
+  font: 700 10px/14px var(--font); text-align: center; box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+.live-mark.old { opacity: .35; }
+.live-mark.old::after { display: none; }
+.live-ripple {
+  position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%;
+  border: 3px solid var(--accent); background: rgba(79, 124, 255, .25);
+  animation: live-ripple .6s ease-out forwards;
+}
+@keyframes live-ripple { from { transform: scale(.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+.live-hover {
+  position: absolute; border: 2px solid var(--accent); background: rgba(79, 124, 255, .12); border-radius: 3px;
+}
+.live-hover-lbl {
+  position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; max-width: 320px;
+  padding: 2px 6px; border-radius: 4px; background: var(--accent); color: #fff;
+  font: 12px/1.4 var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.live-hover-lbl:empty { display: none; }
+.live-typing {
+  position: absolute; left: 8px; bottom: 8px; max-width: 80%;
+  padding: 4px 8px; border-radius: var(--radius-s); background: rgba(15, 17, 21, .9); color: #fff;
+  border: 1px solid var(--accent); font: 13px/1.4 var(--mono); white-space: pre; overflow: hidden; text-overflow: ellipsis;
+}
+.live-typing.anchored { bottom: auto; transform: translate(-8px, 18px); }
+
+/* Підказка «⌨ → сторінка · Shift+Esc» — кілька секунд після фокуса (клас hint-on), у кутку
+   (не накриває шапку/кукі-банер сайту); видно на будь-якій ширині. */
+.live-kbd-hint {
+  position: absolute; right: 8px; bottom: 8px; z-index: 1; max-width: calc(100% - 16px);
+  padding: 3px 10px; border-radius: 999px; background: rgba(15, 17, 21, .9); color: #ffd0d0;
+  border: 1px solid var(--rec); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none; opacity: 0; transition: opacity .15s;
+}
+.live-stage.hint-on .live-kbd-hint { opacity: 1; }
+@media (max-width: 599px) { .live-kbd-hint { font-size: 11px; white-space: normal; text-align: center; border-radius: 10px; } }
+/* Дотик (апаратної клавіатури зазвичай немає) і «1:1» (кадр прокручується — підказка поїхала б
+   разом із вмістом і накрила поле): візуально не показуємо; для читачів екрана — aria-describedby. */
+@media (pointer: coarse) { .live-kbd-hint { display: none; } }
+@media (max-width: 899.98px) { .live-stage.zoom-1 .live-kbd-hint { display: none; } }
+
+/* Прихований input для екранної клавіатури (фокусований, але невидимий; 16px — без зуму iOS) */
+.live-ime {
+  position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0;
+  font-size: 16px; border: 0; padding: 0; pointer-events: none; caret-color: transparent;
+}
+
+/* Відкриття: оверлей зі статусом префікса */
+.live-opening {
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 16px; text-align: center; border-radius: var(--radius-m);
+  background: rgba(11, 13, 18, .82); color: var(--text-2); font-size: 14px;
+}
+.live-open-title { font-weight: 600; color: var(--text); max-width: 100%; overflow-wrap: anywhere; }
+.live-open-status, .live-open-prog { color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.live-opening .spin {
+  width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--border-strong); border-top-color: var(--accent);
+  animation: live-spin .8s linear infinite;
+}
+@keyframes live-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Поповер <select> ---------- */
+.live-popover {
+  position: absolute; z-index: 3; width: 250px; max-width: calc(100% - 8px); max-height: min(320px, 90%);
+  display: flex; flex-direction: column; line-height: normal;
+  background: var(--bg-elev); border: 1px solid var(--accent); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5); cursor: default;
+}
+.live-pop-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 6px 8px; font-size: 12.5px; color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+.live-pop-head .x { background: none; border: none; color: var(--text-dim); min-width: 30px; min-height: 30px; border-radius: var(--radius-s); }
+.live-pop-list { overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+.live-pop-opt {
+  text-align: left; padding: 8px 10px; min-height: 36px; border-radius: var(--radius-s);
+  border: 1px solid transparent; background: none; color: var(--text); font-size: 13.5px;
+}
+.live-pop-opt:hover, .live-pop-opt:focus-visible { background: var(--bg-hover); border-color: var(--border-hover); }
+.live-pop-opt.sel { color: var(--accent-text); }
+.live-pop-empty { padding: 10px; color: var(--text-dim); font-size: 13px; }
+
+/* Останні кроки під живим кадром — лише на вузькому екрані (на десктопі список у сайдбарі) */
+.live-recent { display: none; }
+@media (max-width: 899.98px) {
+  .live-recent {
+    display: block; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--border-card);
+    border-radius: var(--radius-m); background: var(--bg-card); font-size: 13px;
+  }
+  .live-recent .lr-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--text-dim); }
+  .live-recent .lr-list { margin: 6px 0 0; padding-left: 22px; }
+  .live-recent .lr-list li { padding: 3px 0; overflow-wrap: anywhere; }
+  .live-recent .lr-list li.pending { color: var(--text-dim); }
+  .live-recent .lr-empty { margin-top: 6px; color: var(--text-dim); }
+}

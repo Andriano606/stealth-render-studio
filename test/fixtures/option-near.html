@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><title>Опції з aria-selected біля відкривача</title>
+<style>
+  body { margin: 0; height: 1500px; font: 14px sans-serif; }
+  #open { position: absolute; left: 50px; top: 300px; width: 200px; height: 32px; }
+  #list { position: absolute; left: 50px; top: 333px; width: 200px; background: #eef; }
+  .item { height: 30px; line-height: 30px; padding-left: 8px; }
+</style></head>
+<body>
+  <!-- Пункти без role=option і без «option» у класі — лише aria-selected. Перший пункт
+       ~16 px під відкривачем: якщо hit-test не впізнає «опцію», snap (≤24 px) потягне
+       клік на відкривач. -->
+  <button id="open" aria-haspopup="listbox">Мова ▾</button>
+  <div id="list"><div class="item" id="it0" aria-selected="false">UA</div><div class="item" id="it1" aria-selected="false">EN</div></div>
+  <script>
+    window.clicks = [];
+    document.getElementById('open').addEventListener('click', () => clicks.push('open'));
+    document.querySelectorAll('.item').forEach((e) => e.addEventListener('click', () => clicks.push(e.id)));
+  </script>
+</body></html>

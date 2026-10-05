@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Відправка заявки</title>
+<style> body { margin: 0; font: 15px sans-serif; } p { margin: 8px 12px; } button { margin-left: 12px; width: 200px; height: 38px; } </style></head>
+<body>
+  <p>Перевір дані і надішли заявку.</p>
+  <button type="button" id="send">Submit application</button>
+  <script>document.getElementById('send').onclick = () => parent.postMessage('submit', '*');</script>
+</body>
+</html>

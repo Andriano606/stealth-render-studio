@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="uk">
+<head><meta charset="utf-8"><title>Shadow DOM</title>
+<style> body { margin: 0; font: 16px sans-serif; } x-card { display: block; margin: 40px; } </style></head>
+<body>
+  <!-- Кнопка всередині ВІДКРИТОГО shadow root: hitTest має пройти крізь нього,
+       а локатор Playwright (role) — знайти її при відтворенні. -->
+  <x-card></x-card>
+  <script>
+    customElements.define('x-card', class extends HTMLElement {
+      connectedCallback() {
+        const root = this.attachShadow({ mode: 'open' });
+        root.innerHTML = '<div class="wrap"><span>Картка</span> <button id="ok" style="width:160px;height:40px"><span>Shadow OK</span></button></div>';
+        root.getElementById('ok').onclick = () => fetch('/log?e=shadow').catch(() => {});
+      }
+    });
+  </script>
+</body>
+</html>
