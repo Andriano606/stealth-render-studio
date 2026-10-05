@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "test": "node --test",
     "postinstall": "node scripts/patch-camoufox.mjs || true",
     "fetch-camoufox": "camoufox-js fetch"
   },

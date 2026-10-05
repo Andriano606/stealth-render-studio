@@ -15,6 +15,19 @@ chromiumExtra.use(_stealth);
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { createRequire } from 'module';
+import { detectDeviceGids, toDocCoords, isSolidHit, nearestRect } from './lib/coords.js';
+import { depModulePath, preloadPluginDeps } from './lib/pluginDeps.js';
+
+// Підвантажуємо всі stealth-евейжни ОДРАЗУ, а не ліниво при першому launch:
+// інакше, якщо теку проєкту перенесли при запущеному сервері, перемикання на
+// пресет зі stealth-плагіном падало з «Plugin dependency not found».
+{
+  const require = createRequire(import.meta.url);
+  const deps = preloadPluginDeps(_stealth, (d) => require(depModulePath(d)),
+    (d, mod) => chromiumExtra.plugins.setDependencyResolution(d, mod));
+  console.log('Stealth-плагін: підвантажено ' + deps.length + ' залежностей.');
+}
 
 const PORT = 3000;
 const MAX_CONCURRENT = 6; // ліміт одночасних рендерів, щоб не покласти машину
@@ -400,6 +413,11 @@ app.post('/render', async (req, res) => {
     // Чекаємо вміст iframe-ів, прокручуємо для lazy-контенту, знімаємо всю сторінку.
     await waitForContentSettle(page);
     await autoScroll(page);
+    const metrics = await page.evaluate(() => ({
+      innerWidth: window.innerWidth, innerHeight: window.innerHeight,
+      dpr: window.devicePixelRatio,
+      scrollW: document.documentElement.scrollWidth, scrollH: document.documentElement.scrollHeight,
+    }));
     const screenshot = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
     logs.push({ kind: 'shot', text: '📸 fullPage-скриншот зроблено (' + Math.round(screenshot.length / 1024) + ' КБ)' });
 
@@ -411,6 +429,7 @@ app.post('/render', async (req, res) => {
       htmlLength: html.length,
       textPreview: text.slice(0, 1500),
       screenshot: 'data:image/jpeg;base64,' + screenshot.toString('base64'),
+      metrics,
       fromPool,
       poolReady: pool.length,
       logs,
@@ -560,6 +579,50 @@ async function scrollToY(page, y) {
   }, y);
 }
 
+// Знаходить найближчий до точки (vx,vy у координатах головного viewport)
+// клікабельний елемент по ВСІХ фреймах і повертає центр його прямокутника
+// (теж у координатах головного viewport) + відстань. Потрібно, щоб клік
+// «притягувався» до реальної кнопки/поля навіть коли координати запису трохи
+// розійшлися з версткою (напр. кнопка внизу довгої динамічної форми).
+// boundingBox() у Playwright уже віддає координати відносно головного фрейму,
+// враховуючи зсув iframe — тому крос-доменні форми (Ashby) теж працюють.
+async function snapToClickable(page, vx, vy, maxDist = 60) {
+  const sel = 'button, a[href], input:not([type=hidden]), textarea, select, label, [role="button"], [role="checkbox"], [role="radio"], [role="option"], [onclick]';
+  const rects = [];
+  for (const f of page.frames()) {
+    let locs;
+    try { locs = await f.locator(sel).all(); } catch (_e) { continue; }
+    for (const l of locs) {
+      const b = await l.boundingBox().catch(() => null); // координати головного viewport
+      if (b) rects.push({ x: b.x, y: b.y, w: b.width, h: b.height });
+    }
+  }
+  return nearestRect(vx, vy, rects, maxDist); // викликаємо лише коли під точкою порожнеча
+}
+
+// DIAG: що знаходиться під точкою (vx,vy у координатах головного viewport),
+// з урахуванням крос-доменних iframe (зсув беремо з frameElement().boundingBox()).
+async function elementAt(page, vx, vy) {
+  let hit = null;
+  for (const f of page.frames()) {
+    let ox = 0, oy = 0;
+    if (f !== page.mainFrame()) {
+      const fe = await f.frameElement().catch(() => null);
+      const bb = fe ? await fe.boundingBox().catch(() => null) : null;
+      if (!bb) continue;
+      ox = bb.x; oy = bb.y;
+    }
+    const info = await f.evaluate(({ x, y }) => {
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
+      const el = document.elementFromPoint(x, y);
+      if (!el) return null;
+      return { tag: el.tagName, type: el.getAttribute('type') || '', text: (el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('aria-label') || '').trim().slice(0, 30) };
+    }, { x: vx - ox, y: vy - oy }).catch(() => null);
+    if (info) hit = { frame: f === page.mainFrame() ? 'main' : 'iframe', ...info }; // глибший фрейм перекриває
+  }
+  return hit;
+}
+
 // Збирає всі <input type="file"> з головного фрейму та всіх iframe.
 async function collectFileInputs(page) {
   const inputs = [];
@@ -657,21 +720,86 @@ app.post('/replay', async (req, res) => {
 
     let replayed = 0;
     let fileIdx = 0; // лічильник використаних полів input[type=file]
+    // --- Узгодження координат ---
+    // Координати записані у ПІКСЕЛЯХ fullPage-скриншота (= CSS × DPR на момент
+    // запису), а миша/скрол Playwright працюють у CSS-пікселях. Різні Дії могли
+    // бути записані на різних рушіях/DPR (Chromium DPR1 vs Camoufox DPR2), тож
+    // простір визначаємо так:
+    //   • a.sw заданий (нові записи) → масштаб = поточна_CSS_ширина / a.sw;
+    //   • інакше (старі) → по Дії (a.gid): якщо макс. X у Дії > viewport → це
+    //     device-простір (÷DPR), інакше вважаємо, що координати вже в CSS.
+    const vp = await page.evaluate(() => ({
+      w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1,
+      sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight,
+    })).catch(() => ({ w: 1280, h: 900, dpr: 1, sw: 1280, sh: 900 }));
+    const deviceGids = detectDeviceGids(actions, vp.w);
+    const scaleOpts = { scrollW: vp.sw, dpr: vp.dpr, deviceGids };
+    const toCss = (a) => toDocCoords(a, scaleOpts);
+    if (deviceGids.size) send({ event: 'log', kind: 'info', text: '🧭 Координати: ' + deviceGids.size + ' Дій у device-просторі масштабовано ÷' + vp.dpr + ' у CSS' });
     for (let i = 0; i < actions.length; i++) {
       const a = actions[i];
       send({ event: 'action', index: i }); // яка дія зараз виконується
       let ok = true, errMsg = null;
       try {
         if (a.type === 'move') {
-          const sy = await scrollToY(page, a.y);
-          if (humanize) mouse = await humanMove(page, mouse, a.x, a.y - sy);
-          else await page.mouse.move(a.x, a.y - sy);
+          const { x: docX, y: docY } = toCss(a);   // CSS-координати по документу
+          const sy = await scrollToY(page, docY);  // прокручуємо ціль у видиму зону
+          const vx = docX, vy = docY - sy;          // у координати viewport
+          if (humanize) mouse = await humanMove(page, mouse, vx, vy);
+          else await page.mouse.move(vx, vy);
         } else if (a.type === 'click') {
+          // Якщо на цій під-дії увімкнено чекбокс «чекати відповідь» (a.waitResponse)
+          // — заздалегідь (ДО кліку) реєструємо очікування POST-відповіді сервера,
+          // а після кліку чекаємо її + дорендер результату. Для сабміт-кнопок.
+          const wantWait = a.waitResponse === true;
+          const beforeText = wantWait ? await allFramesText(page) : null;
+          // Збираємо ВСІ POST-відповіді у вікні очікування. Cloudflare постійно
+          // шле фонові беакони на /cdn-cgi/challenge-platform/ — їх відсіюємо,
+          // щоб побачити саме сабміт форми (Ashby: api/jobs.ashbyhq.com, graphql).
+          const posts = [];
+          const onResp = (resp) => {
+            try { if (resp.request().method() === 'POST') {
+              const u = resp.url();
+              if (!/cdn-cgi\/challenge-platform/.test(u)) posts.push(resp.status() + ' ' + u);
+            } } catch (_e) {}
+          };
+          if (wantWait) page.on('response', onResp);
           if (humanize && Math.random() < 0.5) await humanWander(page); // інколи «роздивляємось» перед кліком
-          const sy = await scrollToY(page, a.y);
-          if (humanize) mouse = await humanClick(page, mouse, a.x, a.y - sy);
-          else await page.mouse.click(a.x, a.y - sy);
+          const { x: docX, y: docY } = toCss(a);   // CSS-координати по документу
+          const sy = await scrollToY(page, docY);  // прокручуємо ціль у видиму зону (працює і внизу форми)
+          let vx = docX, vy = docY - sy;            // у координати viewport
+          // Довіряємо RAW-кліку, якщо браузерний hit-test показує під точкою
+          // реальний елемент (будь-який — поле, кнопка, опція-<div>). Snap
+          // вмикаємо ЛИШЕ коли під точкою порожнеча (body/html/нічого) — тоді
+          // притягуємо до найближчого контрола (рятуємо дрейф, напр. Submit внизу).
+          const rawHit = await elementAt(page, vx, vy);
+          if (!isSolidHit(rawHit)) {
+            const snap = await snapToClickable(page, vx, vy);
+            if (snap) {
+              const land = await elementAt(page, snap.x, snap.y);
+              send({ event: 'log', kind: 'info', text: '🎯 Порожнеча під кліком — притягнуто до контрола (+' + snap.d + 'px' + (land ? ', «' + land.text + '»' : '') + ')' });
+              vx = snap.x; vy = snap.y;
+            } else {
+              send({ event: 'log', kind: 'warn', text: '⚠️ Під кліком порожнеча і поряд немає контрола (клік#' + i + ', vp ' + vx + ',' + vy + ')' });
+            }
+          }
+          if (humanize) mouse = await humanClick(page, mouse, vx, vy);
+          else await page.mouse.click(vx, vy);
           await page.waitForTimeout(humanize ? rint(250, 600) : 350); // даємо інтерфейсу зреагувати
+          if (wantWait) {
+            send({ event: 'status', text: 'Чекаю відповідь сервера після кліку…' });
+            const tr0 = Date.now();
+            // чекаємо мережевий спокій усіх фреймів + появу/зміну контенту результату
+            await Promise.all(page.frames().map(f => f.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})));
+            const changed = await waitForResultChange(page, beforeText, 12000);
+            await waitForContentSettle(page);
+            page.off('response', onResp);
+            send({ event: 'log', kind: 'info', text: '📨 POST-и (без CF-беаконів) за ' + (Date.now() - tr0) + ' мс: '
+              + (posts.length ? posts.map(p => p.slice(0, 90)).join('  |  ') : 'ЖОДНОГО') });
+            send({ event: 'log', kind: changed ? 'info' : 'warn', text: changed
+              ? '✅ Контент результату змінився після сабміту'
+              : '⚠️ Контент НЕ змінився — схоже, форма не відправилась (валідація/клік повз кнопку?)' });
+          }
         } else if (a.type === 'text') {
           // Режим рандому: замість заданого символу — випадкова цифра або англ. літера.
           let txt = String(a.text);
@@ -705,19 +833,15 @@ app.post('/replay', async (req, res) => {
       await page.waitForTimeout(humanize ? rint(350, 1100) : 120);
     }
 
-    // Надійно чекаємо відповідь сервера після останньої дії (напр. сабміт форми).
-    // Важливо: сабміт часто йде з IFRAME (напр. форма Ashby), тож чекаємо
-    // networkidle УСІХ фреймів, а не лише головного, і додатково — доки реально
-    // з'явиться/зміниться контент результату.
-    const beforeText = await allFramesText(page);
-    send({ event: 'status', text: 'Чекаю відповідь сервера…' });
-    await page.waitForTimeout(500);
-    await Promise.all(page.frames().map(f => f.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})));
-    await waitForResultChange(page, beforeText, 9000); // чекаємо появу результату
-    await page.waitForTimeout(500);
-    await waitForContentSettle(page);
+    // За замовчуванням БЕЗ важкого очікування наприкінці — скрин одразу (лише
+    // коротке підстроювання контенту). Повне очікування відповіді сервера
+    // вмикається чекбоксом «чекати відповідь» на потрібній під-дії клік.
+    await waitForContentSettle(page, 1500);
     send({ event: 'status', text: 'Роблю фінальний скриншот…' });
-    await autoScroll(page);
+    // ВАЖЛИВО: НЕ робимо autoScroll тут — прокрутка закриває відкриті дропдауни
+    // (react-select закривається при скролі) та інший інтерактивний стан, а
+    // мета фінального скрина — показати результат дій (напр. розкритий дропдаун).
+    // fullPage-скриншот і так захоплює всю сторінку без попередньої прокрутки.
     const title = await page.title();
     const screenshot = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
 
@@ -934,20 +1058,36 @@ function resolveUpload(fileId, filename) {
   return fs.existsSync(p) ? p : null;
 }
 
+// Потоковий аплоад: файл надходить як бінарний стрім (application/octet-stream),
+// імʼя — у заголовку x-filename. БЕЗ base64 у памʼяті — тому великі файли (PDF
+// на сотні МБ) не кладуть ні вкладку браузера, ні сервер. Пишемо req → на диск.
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 МБ — запобіжник
 app.post('/upload', (req, res) => {
+  let finished = false;
+  const done = (code, body) => { if (finished) return; finished = true; res.status(code).json(body); };
   try {
-    const { filename, data } = req.body || {};
-    if (!data) return res.status(400).json({ ok: false, error: 'немає даних файлу' });
-    const b64 = String(data).includes(',') ? String(data).split(',', 2)[1] : String(data);
-    const buf = Buffer.from(b64, 'base64');
+    const name = safeName(decodeURIComponent(req.get('x-filename') || 'file'));
     const id = crypto.randomUUID();
-    const name = safeName(filename);
     const dir = path.join(UPLOAD_DIR, id);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, name), buf);
-    res.json({ ok: true, fileId: id, filename: name, size: buf.length });
+    const dest = path.join(dir, name);
+    const ws = fs.createWriteStream(dest);
+    let size = 0, aborted = false;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_UPLOAD_BYTES && !aborted) {
+        aborted = true;
+        req.destroy(); ws.destroy();
+        fs.rm(dir, { recursive: true, force: true }, () => {});
+        done(413, { ok: false, error: 'файл завеликий (ліміт ' + Math.round(MAX_UPLOAD_BYTES / 1048576) + ' МБ)' });
+      }
+    });
+    req.on('error', (e) => { ws.destroy(); done(500, { ok: false, error: String(e.message || e) }); });
+    ws.on('error', (e) => { if (!aborted) done(500, { ok: false, error: String(e.message || e) }); });
+    ws.on('finish', () => { if (!aborted) done(200, { ok: true, fileId: id, filename: name, size }); });
+    req.pipe(ws);
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    done(500, { ok: false, error: String(e.message || e) });
   }
 });
 
@@ -1000,6 +1140,7 @@ app.post('/profile', async (req, res) => {
   // знімок стану ДО змін — щоб у persistent-режимі перезапускати лише за реальної зміни
   const sigBefore = JSON.stringify([profile.fingerprint, profile.stealth, profile.launch, profile.storageState]);
 
+  const launchBefore = JSON.stringify(profile.launch);
   if (clear) { // скинути до дефолту Playwright
     profile.fingerprint = null; profile.storageState = null;
     profile.stealth = { webdriver: false, windowChrome: false, outerWindow: false, permissions: false, pwInitScripts: false };
@@ -1013,25 +1154,26 @@ app.post('/profile', async (req, res) => {
   if (ss) profile.storageState = ss;
   if (cookies === null || storageState === null) profile.storageState = null; // явне очищення
 
-  let launchChanged = false;
-  if (launch) {
-    const before = JSON.stringify(profile.launch);
-    profile.launch = Object.assign(profile.launch, launch);
-    launchChanged = JSON.stringify(profile.launch) !== before;
-  }
+  if (launch) profile.launch = Object.assign(profile.launch, launch);
+  // Порівнюємо з launch ДО будь-яких змін — щоб і `clear` (Clear all) перезапускав браузер.
+  const launchChanged = JSON.stringify(profile.launch) !== launchBefore;
   saveProfile();
 
   const sigAfter = JSON.stringify([profile.fingerprint, profile.stealth, profile.launch, profile.storageState]);
   const changed = sigAfter !== sigBefore;
 
-  let relaunched = false;
+  let relaunched = false, launchError = null;
   // Перезапуск потрібен: (1) якщо змінилися launch-прапорці; (2) у persistent-режимі
   // при будь-якій зміні профілю (init-скрипт висить на постійному контексті).
   if (launchChanged || (isPersistent() && changed)) {
-    await relaunchBrowser().catch(() => {}); relaunched = true;
+    await relaunchBrowser().catch((e) => { launchError = String(e && e.message || e); });
+    relaunched = true;
   }
   if (!relaunched) await drainPool().catch(() => {}); // у звичайному режимі — просто оновити пул
-  res.json({ ok: true, relaunched, ...fullConfig() });
+  // refillPool ковтає помилки — тож перевіряємо, чи рушій реально піднявся.
+  if (!launchError && !engineReady()) launchError = 'браузер не запустився (див. лог сервера)';
+  if (launchError) console.error('Помилка запуску браузера після зміни конфігу:', launchError);
+  res.json({ ok: true, relaunched, launchError, ...fullConfig() });
 });
 
 function fullConfig() {

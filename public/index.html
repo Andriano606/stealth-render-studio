@@ -69,6 +69,8 @@
     .console-body .ln.stealth { color: #d58cff; }
     .console-body .ln.cookies { color: #ffb36b; }
     .console-body .ln.nav, .console-body .ln.shot, .console-body .ln.info { color: #9aa4b2; }
+    .console-body .ln.warn { color: #e0a34a; }
+    .console-body .ln.error { color: #ff6b6b; }
 
     /* Модалка-конфігуратор */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 100; }
@@ -180,6 +182,7 @@
     .rec-head .tg { border: none; background: none; color: #8b94a3; cursor: pointer; font-size: 12px; width: 16px; }
     .rec-head .name { flex: 1; font-size: 14px; font-weight: 600; color: #e6e8ee; cursor: pointer; }
     .rec-head .meta { font-size: 11px; color: #6b7686; margin-right: 4px; white-space: nowrap; }
+    .rec.rec-run .rec-head .meta { color: #4f7cff; font-weight: 700; font-variant-numeric: tabular-nums; }
     .rec-head .op { border: none; background: none; cursor: pointer; font-size: 13px; padding: 3px 5px; border-radius: 6px; color: #7a8696; }
     .rec-head .op:hover { background: #222a38; color: #e6e8ee; }
     .rec-head .op.run { color: #67c98a; }
@@ -418,7 +421,9 @@
       head.innerHTML =
         '<button class="tg">' + (rec.expanded ? '▾' : '▸') + '</button>' +
         '<span class="name">' + escapeHtml(rec.name) + '</span>' +
-        '<span class="meta">' + rec.subs.length + ' під-дій</span>';
+        '<span class="meta">' + (rec.running
+          ? ((rec.runCur || 0) + '/' + (rec.runTotal != null ? rec.runTotal : rec.subs.length))
+          : (rec.subs.length + ' під-дій')) + '</span>';
       head.querySelector('.tg').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
       head.querySelector('.name').addEventListener('click', () => { rec.expanded = !rec.expanded; setExpand('r', rec.id, rec.expanded); renderPages(); });
       head.appendChild(mkOp('▶', 'Виконати до цієї Дії включно', 'run', () => runPage(page.id, rec.id), busy || !rec.subs.length));
@@ -445,6 +450,13 @@
                 a.random = a.random === 'digit' ? 'letter' : (a.random === 'letter' ? undefined : 'digit');
                 renderPages(); persistPage(page);
               }, false));
+            }
+            if (a.type === 'click') {
+              li.appendChild(mkOp((a.waitResponse ? '☑' : '☐') + '⏳',
+                'Чекати відповідь сервера після цього кліку (для сабміт-кнопки). За замовчуванням вимкнено.',
+                a.waitResponse ? 'run' : '', () => {
+                  a.waitResponse = !a.waitResponse; renderPages(); persistPage(page);
+                }, false));
             }
             li.appendChild(mkOp('✎', 'Редагувати', '', () => editSub(page, rec, i), false));
             li.appendChild(mkOp('✕', 'Видалити', '', () => { rec.subs.splice(i, 1); renderPages(); persistPage(page); }, false));
@@ -488,14 +500,19 @@
       const rect = recordImg.getBoundingClientRect();
       const sx = recordImg.naturalWidth / rect.width;
       const sy = recordImg.naturalHeight / rect.height;
-      return { x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy) };
+      // sw/sh — розміри скриншота, у ПІКСЕЛЯХ якого записано координати.
+      // Реплей за ними точно масштабує координати у CSS незалежно від рушія/DPR.
+      return {
+        x: Math.round((e.clientX - rect.left) * sx), y: Math.round((e.clientY - rect.top) * sy),
+        sw: recordImg.naturalWidth, sh: recordImg.naturalHeight,
+      };
     }
     function onMove(e) {
       const now = performance.now();
       if (now - lastMoveT < 90) return;
-      lastMoveT = now; const { x, y } = imgCoords(e); pushSub({ type: 'move', x, y });
+      lastMoveT = now; const { x, y, sw, sh } = imgCoords(e); pushSub({ type: 'move', x, y, sw, sh });
     }
-    function onClick(e) { const { x, y } = imgCoords(e); pushSub({ type: 'click', x, y }); }
+    function onClick(e) { const { x, y, sw, sh } = imgCoords(e); pushSub({ type: 'click', x, y, sw, sh }); }
     function onKey(e) {
       const printable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
       if (printable) { pushSub({ type: 'text', text: e.key }); return; }
@@ -518,16 +535,14 @@
       const tgt = fileTarget; fileTarget = null;
       if (!f || !tgt) return;
       const { page, rec } = tgt;
-      setLive('Завантажую файл «' + f.name + '»…', false, true);
+      setLive('Завантажую файл «' + f.name + '» (' + (f.size / 1048576).toFixed(1) + ' МБ)…', false, true);
       try {
-        const dataUrl = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result); r.onerror = rej;
-          r.readAsDataURL(f);
-        });
+        // Шлемо файл як бінарний стрім — браузер не тримає base64 у памʼяті,
+        // тож великі PDF не кладуть вкладку. Імʼя — у заголовку.
         const resp = await fetch('/upload', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: f.name, data: dataUrl }),
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'x-filename': encodeURIComponent(f.name) },
+          body: f,
         });
         const d = await resp.json();
         if (!d.ok) { setLive('Помилка завантаження: ' + (d.error || ''), false); return; }
@@ -600,13 +615,19 @@
       if (uptoRecId != null) { const idx = page.recs.findIndex(r => r.id === uptoRecId); recs = page.recs.slice(0, idx + 1); }
 
       // Плоский список під-дій + мапа: глобальний індекс → {rec, subIndex}
+      // НЕ розкриваємо Дії під час запуску — замість цього показуємо маленький
+      // прогрес (напр. 7/22) у заголовку кожної Дії.
       const flat = [], map = [];
       recs.forEach((rec) => {
-        rec.expanded = true; rec.running = true;
+        rec.running = true;
+        let recTotal = 0;
         rec.subs.forEach((a, si) => {
           if (skipMovesEl.checked && a.type === 'move') { a.status = 'skipped'; return; } // пропускаємо рухи
-          a.status = 'idle'; map.push({ rec, si }); flat.push(a);
+          a.status = 'idle'; recTotal++;
+          // gid = id Дії: сервер за ним визначає простір координат для старих записів
+          map.push({ rec, si, recPos: recTotal }); flat.push({ ...a, gid: rec.id });
         });
+        rec.runTotal = recTotal; rec.runCur = 0;
       });
       // Якщо під-дій немає — просто відкриваємо стартовий URL і робимо скриншот.
 
@@ -645,8 +666,8 @@
       } else if (ev.event === 'status' || ev.event === 'opened') {
         setLive('«' + ctx.page.name + '»: ' + (ev.text || '…'), true);
       } else if (ev.event === 'action') {
-        const { rec, si } = ctx.map[ev.index];
-        rec.subs[si].status = 'running'; renderPages();
+        const { rec, si, recPos } = ctx.map[ev.index];
+        rec.subs[si].status = 'running'; rec.runCur = recPos; renderPages();
         setLive('«' + rec.name + '» — крок ' + (ev.index + 1) + '/' + ctx.total + ': ' + subLabel(rec.subs[si]), true);
       } else if (ev.event === 'done-action') {
         const { rec, si } = ctx.map[ev.index];
@@ -977,6 +998,11 @@
       cfgState = d; draft = makeDraft(d); renderNav(); renderCategory(); renderPresets();
       logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
       logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
+      if (d.launchError) {
+        logLine('error', '❌ Браузер не запустився: ' + d.launchError);
+        setLive('❌ Помилка запуску браузера: ' + d.launchError, false);
+        return d;
+      }
       setLive((note || 'Конфіг') + ' застосовано' + (d.relaunched ? ' (перезапуск)' : '') + '.', false);
       return d;
     }
