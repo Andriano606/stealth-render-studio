@@ -67,6 +67,14 @@ module ConductorHelpers
     File.join(workspace_root, 'uploads')
   end
 
+  # 📦 Bundle (presets + scenarios + step files) imported into every NEW workspace DB.
+  # Lives in the gitignored .state/ of the scripts folder (it may hold typed form
+  # text and attached files), override with CONDUCTOR_IMPORT_BUNDLE=<path>.
+  def import_bundle_path
+    p = ENV['CONDUCTOR_IMPORT_BUNDLE'].to_s
+    p.empty? ? File.join(state_dir, 'import-bundle.json') : File.expand_path(p)
+  end
+
   # --- identity / naming ----------------------------------------------------
   def workspace_name
     n = ENV['CONDUCTOR_WORKSPACE_NAME'].to_s

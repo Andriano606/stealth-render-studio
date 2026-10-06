@@ -11,6 +11,9 @@
 #                                  workspace's DB (scenarios, presets)
 #   CONDUCTOR_FETCH_CAMOUFOX=1     download the Camoufox binary (~1.3 GB, shared
 #                                  per user, once) if it's missing
+#   CONDUCTOR_IMPORT_BUNDLE=<path> bundle to import (default .state/import-bundle.json)
+#   CONDUCTOR_IMPORT_FORCE=1       import into an EXISTING workspace DB too
+#   CONDUCTOR_SKIP_IMPORT=1        don't import the bundle
 
 require_relative 'conductor_helpers'
 
@@ -32,6 +35,7 @@ def main
   puts "   web port  : #{web}"
   puts ''
 
+  created = false
   unless ENV['CONDUCTOR_SKIP_DB'] == '1'
     ensure_infra!
     created = ensure_database!
@@ -44,6 +48,7 @@ def main
   end
 
   install_dependencies
+  import_bundle(created)
   copy_profile
   check_browsers
   check_git_hooks
@@ -62,6 +67,34 @@ def install_dependencies
   # postinstall auto-patches camoufox-js inside node_modules (gitignored).
   puts '📦 Installing JS packages (npm ci)...'
   retry_system!('npm', 'ci', '--no-audit', '--no-fund')
+end
+
+# Import the 📦 bundle (presets + scenarios + step files) into a NEW workspace DB
+# with the app's own import code (conductor/import_bundle.mjs, no browser).
+# Same-named items — incl. the built-in presets the app seeds — are REPLACED by
+# the bundle's version; identical ones are skipped. Best-effort: a failed
+# import only warns (the workspace still works, import by hand via 📥).
+def import_bundle(db_created)
+  return if ENV['CONDUCTOR_SKIP_IMPORT'] == '1' || ENV['CONDUCTOR_SKIP_DB'] == '1'
+
+  bundle = import_bundle_path
+  unless File.exist?(bundle)
+    puts "ℹ️  No bundle to import (#{bundle}) — put a 📤 export there or set CONDUCTOR_IMPORT_BUNDLE."
+    return
+  end
+  unless db_created || ENV['CONDUCTOR_IMPORT_FORCE'] == '1'
+    puts "ℹ️  Bundle not imported: #{db_name} already existed (CONDUCTOR_IMPORT_FORCE=1 to re-import)."
+    return
+  end
+  return warn('⚠️  node_modules missing — bundle not imported (run setup without CONDUCTOR_SKIP_DEPS).') \
+    unless Dir.exist?(File.join(workspace_root, 'node_modules'))
+  return warn('⚠️  uploads/ is not gitignored here — bundle not imported.') unless git_ignored?(File.join(upload_dir, 'probe'))
+
+  puts ''
+  puts "📥 Importing #{File.basename(bundle)} (same names → replace)..."
+  script = File.join(conductor_dir, 'import_bundle.mjs')
+  ok = system(app_env(0), 'node', script, workspace_root, bundle)
+  warn '⚠️  Bundle import failed — import it by hand via 📥 in the UI.' unless ok
 end
 
 # Carry the main checkout's calibrated browser profile into a fresh workspace

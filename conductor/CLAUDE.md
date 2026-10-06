@@ -32,15 +32,19 @@ Same shape as `/home/andrii/Documents/taxmate/scripts` (Ruby orchestration + doc
 | File | Role |
 |------|------|
 | `setup.sh` / `run.sh` / `archive.sh` | Wrappers: cd to workspace, asdf shims, `ASDF_RUBY_VERSION=3.4.8` (global Ruby is 2.5.8), exec the `.rb`. |
-| `setup.rb` | asdf Node, compose up, create DB (+ optional seed), `npm ci`, copy main `profile.json`, Chrome/Camoufox check, git-clean check. |
+| `setup.rb` | asdf Node, compose up, create DB (+ optional seed), `npm ci`, import bundle into a NEW DB, copy main `profile.json`, Chrome/Camoufox check, git-clean check. |
+| `import_bundle.mjs` | Node helper for setup: loads the WORKSPACE's `lib/db.js` `initDb` + `routes/transfer.js` router on an ephemeral 127.0.0.1 port, POSTs `/import` with `onConflict: replace` for presets and scenarios (built-ins with the same name get overwritten, identical items skipped → re-runs are no-ops). Writes bundle step files into `uploads/<same fileId>/`. No browser. |
 | `run.rb` | Ensure Postgres + DB, run `node server.js` with workspace ENV, supervised (INT/TERM/HUP → TERM). |
 | `archive.rb` | Drop the workspace DB (unless `CONDUCTOR_KEEP_DB=1`), release index. Best-effort. |
 | `conductor_helpers.rb` | Naming, `.state` index, ports, `app_env`, docker/psql helpers. Derive values ONCE here. |
 | `docker-compose.yml` | Shared Postgres 17. |
-| `.state/` | `<slug>.port` index registry (gitignored). |
+| `.state/` | `<slug>.port` index registry + `import-bundle.json` (the 📦 bundle every new workspace gets; `CONDUCTOR_IMPORT_BUNDLE` overrides; holds form text/CV → never commit) (gitignored). |
 
 ## Verified
 
 2026-10-06, throwaway worktree: setup → DB created, `npm ci`, git-clean; run → `/health`
 `db:true`, pool of 3 Chrome contexts ready on the workspace port; TERM → clean shutdown, no
 leftover processes; `CONDUCTOR_SEED_FROM` copied presets; archive → DBs dropped, index released.
+Bundle import (same day): fresh DB → 3 presets (no duplicates, «📋 Ashby» replaced, two
+identical built-ins skipped), 2 scenarios, CV file under the same fileId; re-run with
+`CONDUCTOR_IMPORT_FORCE=1` → everything «identical», worktree still git-clean.

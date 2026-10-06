@@ -29,8 +29,9 @@ Run-script mode: **concurrent**. (`conductor.json` — лише довідка, 
 
 - **setup.sh** (раз на воркспейс): `asdf install nodejs` з `.tool-versions` (якщо бракує),
   піднімає спільний Postgres, створює БД `stealth_dev_<slug>`, `npm ci` (+ postinstall-патч
-  camoufox-js), копіює `profile.json` з основного checkout (якщо він там є, а тут — ні),
-  перевіряє Chrome / Camoufox, перевіряє що worktree git-clean.
+  camoufox-js), **імпортує бандл** пресетів і сценаріїв у НОВУ БД (див. нижче), копіює
+  `profile.json` з основного checkout (якщо він там є, а тут — ні), перевіряє Chrome /
+  Camoufox, перевіряє що worktree git-clean.
 - **run.sh** (кнопка Run): переконується, що Postgres і БД є, запускає `node server.js` на
   порту воркспейсу. INT/TERM/HUP → TERM → коректне завершення (браузер, сесії, БД).
 - **archive.sh** (перед видаленням): видаляє БД воркспейсу, звільняє індекс порту.
@@ -51,6 +52,24 @@ gitignored-шляхів:
 Таблиці створює сам застосунок при старті (`initDb`). Бінарник Camoufox (`~/.cache/camoufox`)
 і системний Google Chrome — спільні для всіх.
 
+## 📥 Автоімпорт бандла (пресети + сценарії)
+
+Поклади файл 📤 Експорту застосунку (`stealth-bundle-*.json`) сюди:
+
+```
+/home/andrii/Documents/stealth-render-studio/conductor/.state/import-bundle.json   (gitignored)
+```
+
+і кожен НОВИЙ воркспейс одразу отримає ці пресети, сценарії та файли кроків.
+`import_bundle.mjs` бере код самого воркспейсу — `initDb` (таблиці + засівання вбудованих
+пресетів) і роут `POST /import` (та сама валідація й одна транзакція, що в UI) — без
+запуску браузера. Стратегія конфліктів — **replace**: однойменні (зокрема вбудовані
+«🧹 Clear all» / «☁️ Cloudflare» / «📋 Ashby») перезаписуються версією з бандла, однакові —
+пропускаються, решта створюється. Файли кроків пишуться в `uploads/` з тим самим `fileId`.
+Збій імпорту лише попереджає (воркспейс робочий, можна імпортувати руками через 📥).
+
+Файл тримається поза git, бо містить введений у форми текст і вкладені файли (CV тощо).
+
 ## Спільна інфраструктура (docker-compose.yml)
 
 **Postgres 17**, контейнер `stealth-cdt-postgres`, порт хоста **5437** (5432 — mysql,
@@ -67,6 +86,10 @@ docker exec -it stealth-cdt-postgres psql -U stealth -l      # список БД
 - `CONDUCTOR_SEED_FROM=<ім'я воркспейсу>` — НОВУ БД заповнити копією БД іншого воркспейсу
   (сценарії, пресети).
 - `CONDUCTOR_FETCH_CAMOUFOX=1` — завантажити Camoufox (~1.3 ГБ, раз на користувача), якщо немає.
+- `CONDUCTOR_IMPORT_BUNDLE=<шлях>` — інший бандл замість `.state/import-bundle.json`.
+- `CONDUCTOR_IMPORT_FORCE=1` — імпортувати й в УЖЕ наявну БД воркспейсу (однойменні
+  сценарії/пресети, змінені у воркспейсі, буде перезаписано).
+- `CONDUCTOR_SKIP_IMPORT=1` — без імпорту бандла.
 - `CONDUCTOR_KEEP_DB=1` — archive не видаляє БД (щоб потім `CONDUCTOR_SEED_FROM`).
 
 ## Вимоги
