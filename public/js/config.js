@@ -344,7 +344,7 @@ export function exportUrl(status) {
 
 // 📤 Експорт: завантажує Markdown зі специфікацією ЗАСТОСОВАНОГО конфігу + client.mjs.
 function exportConfig() {
-  if (!cfgState) return;
+  if (!cfgState || busy) return; // під час застосування профіль на сервері вже інший, ніж у cfgState
   const st = configStatus(cfgState, presets, savedPresetId());
   const a = h('a', { href: exportUrl(st), download: '' });
   document.body.appendChild(a); a.click(); a.remove();
@@ -484,6 +484,7 @@ function renderFooter() {
   saveBtn.title = f.applyDisabled ? 'Немає незастосованих змін' : 'Застосувати зміни до браузера' + (isDirty() ? ' (без зміни пресета)' : '');
   updBtn.hidden = !f.update; if (f.update) { updBtn.textContent = f.update; updBtn.disabled = busy; }
   newBtn.hidden = !f.saveNew; if (f.saveNew) { newBtn.textContent = f.saveNew; newBtn.disabled = busy; }
+  if (exportBtn) exportBtn.disabled = busy; // і з клавіатури (Enter) — не експортуємо посеред застосування
 }
 
 // Поки застосовуємо — у статусі тікає лічильник секунд, щоб було видно, що процес живий.

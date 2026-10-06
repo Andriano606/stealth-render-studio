@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { asyncHandler } from '../lib/http.js';
 import { applyProfilePatch, fullConfig } from '../lib/profile.js';
-import { buildConfigExport } from '../lib/exportConfig.js';
+import { buildConfigExport, cleanName } from '../lib/exportConfig.js';
 import { stealthEvasions } from '../lib/stealth.js';
 import { PROJECT_ROOT } from '../lib/config.js';
 
@@ -29,8 +29,8 @@ export function profileRoutes({ profileStore, engine, log = console }) {
     const versions = packageVersions();
     const bv = engine && typeof engine.browserVersion === 'function' ? engine.browserVersion() : null;
     if (bv && bv.version) versions[bv.kind === 'camoufox' ? 'camoufox-browser' : 'chrome'] = bv.version;
-    const presetName = typeof req.query.preset === 'string' ? req.query.preset.slice(0, 80) : '';
-    const presetStatus = typeof req.query.status === 'string' ? req.query.status.slice(0, 16) : null;
+    const presetName = typeof req.query.preset === 'string' ? cleanName(req.query.preset) : ''; // без переносів рядка/керівних символів
+    const presetStatus = typeof req.query.status === 'string' ? cleanName(req.query.status).slice(0, 16) : null;
     const out = buildConfigExport(profileStore.get(), { presetName, presetStatus, versions, evasions: stealthEvasions() });
     if (req.query.format === 'json') return res.json({ ok: true, spec: out.spec });
     res.set('Content-Type', 'text/markdown; charset=utf-8');

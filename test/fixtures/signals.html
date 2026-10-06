@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>signals-loading</title>
+<style>body{font:12px/1.4 monospace;margin:8px}pre{white-space:pre-wrap;word-break:break-all}</style>
+</head>
+<body>
+<!-- Фікстура: збирає сигнали браузера (що бачить детектор) і виводить компактний JSON у
+     <pre id="signals">. Коли все (включно з асинхронним permissions.query) зібрано —
+     document.title = 'signals-ready'. Компактний JSON, щоб влізти в textPreview /render (1500 симв.). -->
+<pre id="signals">collecting…</pre>
+<script>
+(async () => {
+  const safe = (fn) => { try { return fn(); } catch (e) { return 'ERR:' + (e && e.message); } };
+  const s = {};
+  s.webdriver = safe(() => navigator.webdriver);
+  s.webdriverOwn = safe(() => Object.getOwnPropertyNames(navigator).includes('webdriver'));
+  s.userAgent = safe(() => navigator.userAgent);
+  s.languages = safe(() => Array.from(navigator.languages || []));
+  s.language = safe(() => navigator.language);
+  s.platform = safe(() => navigator.platform);
+  s.vendor = safe(() => navigator.vendor);
+  s.hardwareConcurrency = safe(() => navigator.hardwareConcurrency);
+  s.deviceMemory = safe(() => (navigator.deviceMemory === undefined ? null : navigator.deviceMemory));
+  s.screen = safe(() => ({ w: screen.width, h: screen.height, aw: screen.availWidth, ah: screen.availHeight, cd: screen.colorDepth, pd: screen.pixelDepth }));
+  s.dpr = safe(() => window.devicePixelRatio);
+  s.inner = safe(() => [window.innerWidth, window.innerHeight]);
+  s.outer = safe(() => [window.outerWidth, window.outerHeight]);
+  s.chromeType = safe(() => typeof window.chrome);
+  s.chromeKeys = safe(() => Object.keys(window.chrome || {}).sort());
+  s.pwInitScriptsType = safe(() => typeof window.__pwInitScripts);
+  s.pwInitScriptsIn = safe(() => '__pwInitScripts' in window);
+  s.plugins = safe(() => navigator.plugins.length);
+  s.mimeTypes = safe(() => navigator.mimeTypes.length);
+  s.webgl = safe(() => {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    if (!gl) return null;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      vendor: ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : null,
+      renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null,
+    };
+  });
+  s.tz = safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  s.intlLocale = safe(() => Intl.DateTimeFormat().resolvedOptions().locale);
+  s.notificationPermission = safe(() => (typeof Notification === 'undefined' ? null : Notification.permission));
+  try {
+    const st = await Promise.race([
+      navigator.permissions.query({ name: 'notifications' }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000)),
+    ]);
+    s.permNotifications = st && st.state;
+  } catch (e) { s.permNotifications = 'ERR:' + (e && e.message); }
+  document.getElementById('signals').textContent = JSON.stringify(s);
+  window.__signals = s;
+  document.title = 'signals-ready';
+})();
+</script>
+</body>
+</html>
