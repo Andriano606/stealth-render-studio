@@ -1,6 +1,6 @@
 // api.js — усі HTTP-виклики до бекенду в одному місці.
 //   createApi(fetchImpl) → { getPages, savePage, deletePage, getProfile, postProfile,
-//                            getPresets, createPreset, updatePreset, upload, replay, stopReplay }
+//                            getPresets, createPreset, updatePreset, deletePreset, renamePreset, upload, replay, stopReplay }
 //   api                  — екземпляр на глобальному fetch (для UI).
 //   readNdjson / streamNdjson — читач NDJSON-стріму (/replay, згодом /live) з AbortController.
 //   ApiError             — не-2xx відповідь: message з тіла {error}, status, body.
@@ -121,6 +121,8 @@ export function createApi(fetchImpl = (...a) => globalThis.fetch(...a)) {
     getPresets: () => json('/presets'),
     createPreset: (name, body) => json('/presets', { method: 'POST', body: { name, body } }),
     updatePreset: (id, body) => json('/presets/' + encodeURIComponent(id), { method: 'PUT', body: { body } }),
+    deletePreset: (id) => json('/presets/' + encodeURIComponent(id), { method: 'DELETE' }),
+    renamePreset: (id, name) => json('/presets/' + encodeURIComponent(id), { method: 'PUT', body: { name } }),
     // Файл — бінарним стрімом (без base64 у памʼяті), імʼя — у заголовку x-filename.
     upload: async (file) => parseJsonResponse(await fetchImpl('/upload', {
       method: 'POST',

@@ -11,7 +11,7 @@
 // «💾 Оновити пресет «X»» (записати в пресет + застосувати), «➕ Зберегти як новий пресет».
 // Під час застосування — busy-оверлей; launchError/помилки — у плашці всередині модалки.
 // Чисті функції (configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody,
-// captureFingerprint, shouldAutoCapture, engineName, configStatus, chipInfo, changedCats,
+// captureFingerprint, presetBlocksAutoFp, shouldAutoCapture, engineName, configStatus, chipInfo, changedCats,
 // needsRelaunch, footerState) експортуються для тестів.
 // Draft-модель: значення не губляться при перемиканні категорій; «Застосувати» застосовує.
 import { $, h, clear, escapeHtml } from './dom.js';
@@ -31,13 +31,23 @@ export const CATS = [
 ];
 
 // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
-export const configSig = (d) => JSON.stringify({ launch: d.launch, stealth: d.stealth, behavior: d.behavior, fingerprint: d.fingerprint });
+// JSON з відсортованими ключами: порядок ключів не важить (Postgres JSONB переставляє
+// ключі в обʼєктах пресета — без цього збережений пресет «відрізнявся» від профілю).
+export function stableJson(v) {
+  const norm = (o) => (o && typeof o === 'object'
+    ? (Array.isArray(o) ? o.map(norm) : Object.keys(o).sort().reduce((a, k) => { if (o[k] !== undefined) a[k] = norm(o[k]); return a; }, {}))
+    : o);
+  return JSON.stringify(norm(v === undefined ? null : v));
+}
+export const sameValue = (a, b) => stableJson(a) === stableJson(b);
+
+export const configSig = (d) => stableJson({ launch: d.launch, stealth: d.stealth, behavior: d.behavior, fingerprint: d.fingerprint });
 
 // Чи всі поля part збігаються з target (часткове порівняння).
 export function subsetEq(part, target) {
   if (!part) return true;
   for (const k of Object.keys(part)) {
-    if (JSON.stringify(part[k]) !== JSON.stringify((target || {})[k])) return false;
+    if (!sameValue(part[k], (target || {})[k])) return false;
   }
   return true;
 }
@@ -49,7 +59,7 @@ export function presetMatches(body, prof) {
     return subsetEq(d.launch, prof.launch) && subsetEq(d.stealth, prof.stealth) && subsetEq(d.behavior, prof.behavior) && !prof.fingerprint;
   }
   return subsetEq(body.launch, prof.launch) && subsetEq(body.stealth, prof.stealth) && subsetEq(body.behavior, prof.behavior)
-    && (body.fingerprint === undefined || JSON.stringify(body.fingerprint) === JSON.stringify(prof.fingerprint));
+    && (body.fingerprint === undefined || sameValue(body.fingerprint, prof.fingerprint));
 }
 
 export function makeDraft(d) {
@@ -101,11 +111,16 @@ export function isAutomatedBrowser(nav = globalThis.navigator) {
   return nav.webdriver === true || /Headless/i.test(String(nav.userAgent || ''));
 }
 
-export function shouldAutoCapture(profile, activePreset, nav = globalThis.navigator) {
+// Пресет вимагає «без fingerprint» (Clear all / явне fingerprint:null).
+export const presetBlocksAutoFp = (body) => !!(body && (body.clear || body.fingerprint === null));
+
+// noAutoFp — запамʼятована заборона (localStorage 'noAutoFp'): активний «голий» пресет
+// видалено/покинуто, але його умови (без fingerprint) мають лишитися.
+export function shouldAutoCapture(profile, activePreset, nav = globalThis.navigator, noAutoFp = false) {
   if (!profile || profile.fingerprint) return false;
+  if (noAutoFp) return false;
   if (isAutomatedBrowser(nav)) return false;
-  const b = activePreset && activePreset.body;
-  if (b && (b.clear || b.fingerprint === null)) return false;
+  if (presetBlocksAutoFp(activePreset && activePreset.body)) return false;
   return true;
 }
 
@@ -149,7 +164,7 @@ const ENGINE_KEYS = new Set(['engine', 'camoufoxHumanize', 'camoufoxGeoip']);
 export function changedCats(draft, applied) {
   const out = new Set();
   if (!draft || !applied) return out;
-  const neq = (a, b) => JSON.stringify(a == null ? null : a) !== JSON.stringify(b == null ? null : b);
+  const neq = (a, b) => !sameValue(a == null ? null : a, b == null ? null : b);
   for (const [cat, paths] of Object.entries(CAT_PATHS)) {
     for (const p of paths) {
       if (p === 'launch') {
@@ -188,13 +203,27 @@ export function footerState({ unsaved, dirty, activeName, presetsDb }) {
 }
 
 // ---------- Стан модалки ----------
-let dlg, cfgNav, cfgPresets, cfgBody, saveBtn, updBtn, newBtn, hintEl, alertEl, busyEl, resetBtn;
+let dlg, cfgNav, cfgPresets, cfgBody, saveBtn, updBtn, newBtn, hintEl, alertEl, busyEl;
 let cfgState = null, draft = null, activeCat = 'engine';
 let presets = [], activePresetId = null; // пресети з БД + активний (вибраний користувачем)
 let presetsDb = true;
 let busy = false;
 
 const savedPresetId = () => Number(storage.get('activePresetId')) || null;
+// Обрано пресет → він і вирішує про автозахоплення fingerprint (знімаємо заборону noAutoFp).
+function rememberPreset(id) {
+  activePresetId = id || null;
+  storage.remove('noAutoFp');
+  if (id) storage.set('activePresetId', String(id)); else storage.remove('activePresetId');
+}
+// Режим «кастом» (активний пресет видалено/покинуто). Якщо той пресет був «без fingerprint»,
+// забороняємо автозахоплення — інакше наступне завантаження UI мовчки підставило б fingerprint.
+function forgetPreset() {
+  const p = activePreset();
+  if (p && presetBlocksAutoFp(p.body)) storage.set('noAutoFp', '1');
+  activePresetId = null;
+  storage.remove('activePresetId');
+}
 const activePreset = () => presets.find((p) => p.id === activePresetId) || null;
 const draftProf = () => (draft ? { ...draft, defaults: (cfgState && cfgState.defaults) || {} } : null);
 // draft відрізняється від активного пресета (те, що пресет контролює).
@@ -213,7 +242,6 @@ export function initConfig() {
   hintEl = $('cfgHint');
   alertEl = $('cfgAlert');
   busyEl = $('cfgBusy');
-  resetBtn = $('cfgReset');
   $('cfgBtn').addEventListener('click', openConfig);
   $('hdrConfigChip').addEventListener('click', openConfig);
   $('cfgClose').addEventListener('click', guardedClose);
@@ -225,10 +253,6 @@ export function initConfig() {
   saveBtn.addEventListener('click', onSave);
   if (updBtn) updBtn.addEventListener('click', () => { const p = activePreset(); if (p) savePreset(p); });
   if (newBtn) newBtn.addEventListener('click', createPreset);
-  resetBtn.addEventListener('click', () => {
-    const clearP = presets.find((p) => p.body && p.body.clear);
-    applyPreset(clearP || { id: null, name: '🧹 Clear all', body: { clear: true } });
-  });
   // Health (живі сесії) змінює попередження про перезапуск — оновлюємо футер.
   on('health', () => { if (dlg.open) renderFooter(); });
 }
@@ -281,16 +305,106 @@ function renderPresets() {
   const dirty = isDirty();
   for (const p of presets) {
     const active = p.id === activePresetId;
-    cfgPresets.appendChild(h('button', {
-      type: 'button',
-      class: 'pre-btn' + (p.body && p.body.clear ? ' clear' : '') + (active ? ' active' : '') + (active && dirty ? ' dirty' : ''),
-      'aria-pressed': active ? 'true' : 'false',
-      disabled: busy,
-      title: (active && dirty ? 'Змінено відносно пресета — клік поверне пресет. ' : 'Застосувати пресет. ') + (p.builtin ? '' : '(кастомний)'),
-      text: p.name + (active && dirty ? ' ●' : ''),
-      on: { click: () => applyPreset(p) },
-    }));
+    // Пресет = [кнопка застосування][✕ видалення] — одна «пігулка».
+    cfgPresets.appendChild(h('span', { class: 'pre-group' + (active ? ' active' : '') },
+      h('button', {
+        type: 'button',
+        class: 'pre-btn' + (p.body && p.body.clear ? ' clear' : '') + (active ? ' active' : '') + (active && dirty ? ' dirty' : ''),
+        'aria-pressed': active ? 'true' : 'false',
+        disabled: busy,
+        title: (active && dirty ? 'Змінено відносно пресета — клік поверне пресет. ' : 'Застосувати пресет. ') + (p.builtin ? '' : '(кастомний)'),
+        text: p.name + (active && dirty ? ' ●' : ''),
+        on: { click: () => applyPreset(p) },
+      }),
+      h('button', {
+        type: 'button', class: 'pre-ren', disabled: busy,
+        'aria-label': 'Перейменувати пресет «' + p.name + '»', title: 'Перейменувати пресет «' + p.name + '»',
+        text: '✎',
+        on: { click: () => renamePreset(p) },
+      }),
+      h('button', {
+        type: 'button', class: 'pre-del', disabled: busy,
+        'aria-label': 'Видалити пресет «' + p.name + '»', title: 'Видалити пресет «' + p.name + '»',
+        text: '✕',
+        on: { click: () => deletePreset(p) },
+      })));
   }
+}
+
+// Перевірка нової назви пресета (чиста): порожня / задовга / вже є в іншого → текст помилки.
+export function presetNameError(value, presets, selfId) {
+  const name = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!name) return 'Назва не може бути порожньою';
+  if (name.length > 80) return 'Назва — до 80 символів';
+  if ((presets || []).some((x) => x.id !== selfId && String(x.name).trim() === name)) return 'Пресет із такою назвою вже є';
+  return '';
+}
+
+// ✎ на пресеті: перейменувати (налаштування пресета не змінюються).
+async function renamePreset(p) {
+  if (busy || !p) return;
+  const name = await promptDialog({
+    title: 'Перейменувати пресет', label: 'Назва пресета', value: p.name, required: true, okText: 'Перейменувати',
+    validate: (v) => presetNameError(v, presets, p.id),
+  });
+  if (name == null) { focusPresetOp(p.id, 'ren'); return; }
+  const clean = name.replace(/\s+/g, ' ').trim();
+  if (clean === p.name) { focusPresetOp(p.id, 'ren'); return; }
+  try {
+    await api.renamePreset(p.id, clean);
+  } catch (e) {
+    showAlert('❌ Пресет не перейменовано: ' + e.message);
+    logLine('error', '❌ Пресет не перейменовано: ' + e.message);
+    return;
+  }
+  await loadPresets();
+  renderAll();
+  if (cfgState) updateHeaderChip(cfgState);
+  focusPresetOp(p.id, 'ren');
+  logLine('info', '✎ Пресет «' + p.name + '» перейменовано на «' + clean + '».');
+  toast('Пресет перейменовано: «' + clean + '».', { kind: 'ok' });
+}
+
+// Фокус на кнопку пресета (після діалогу), щоб він не падав на <body>.
+function focusPresetOp(id, kind) {
+  const i = presets.findIndex((x) => x.id === id);
+  const groups = cfgPresets ? cfgPresets.querySelectorAll('.pre-group') : [];
+  const g = i >= 0 ? groups[i] : null;
+  const b = g && g.querySelector(kind === 'ren' ? '.pre-ren' : '.pre-btn');
+  if (b && typeof b.focus === 'function') b.focus();
+}
+
+// ✕ на пресеті: видалити назавжди (з підтвердженням). Поточний конфіг браузера не змінюється;
+// якщо видалено активний пресет — далі режим «кастом».
+async function deletePreset(p) {
+  if (busy || !p) return;
+  const ok = await confirmDialog({
+    title: 'Видалити пресет',
+    message: 'Пресет «' + p.name + '» буде видалено назавжди. Поточні налаштування браузера не зміняться.',
+    okText: 'Видалити', danger: true,
+  });
+  if (!ok) return;
+  const idx = presets.findIndex((x) => x.id === p.id);
+  try {
+    await api.deletePreset(p.id);
+  } catch (e) {
+    if (e.status !== 404) { // 404 — уже видалено (напр. в іншій вкладці): просто оновлюємо список
+      showAlert('❌ Пресет не видалено: ' + e.message);
+      logLine('error', '❌ Пресет не видалено: ' + e.message);
+      return;
+    }
+  }
+  if (activePresetId === p.id) forgetPreset(); // до loadPresets: forgetPreset дивиться на body пресета
+  await loadPresets();
+  renderAll();
+  // Фокус не губимо (✕ зник разом зі списком): ✕ наступного пресета, інакше попереднього,
+  // інакше вибрана вкладка меню.
+  const dels = cfgPresets.querySelectorAll('.pre-del');
+  const target = dels[Math.min(Math.max(idx, 0), dels.length - 1)] || cfgNav.querySelector('[aria-selected="true"]');
+  if (target) target.focus();
+  if (cfgState) updateHeaderChip(cfgState);
+  logLine('info', '🗑 Пресет «' + p.name + '» видалено.');
+  toast('Пресет «' + p.name + '» видалено.', { kind: 'ok' });
 }
 
 function renderNav() {
@@ -346,7 +460,6 @@ function renderFooter() {
   saveBtn.title = f.applyDisabled ? 'Немає незастосованих змін' : 'Застосувати зміни до браузера' + (isDirty() ? ' (без зміни пресета)' : '');
   updBtn.hidden = !f.update; if (f.update) { updBtn.textContent = f.update; updBtn.disabled = busy; }
   newBtn.hidden = !f.saveNew; if (f.saveNew) { newBtn.textContent = f.saveNew; newBtn.disabled = busy; }
-  resetBtn.disabled = busy;
 }
 
 // Поки застосовуємо — у статусі тікає лічильник секунд, щоб було видно, що процес живий.
@@ -510,8 +623,7 @@ async function onSave() {
   const d = await applyProfile(body, 'Конфіг');
   if (!d) return;
   if (wasDirty) {
-    activePresetId = null;
-    storage.remove('activePresetId');
+    forgetPreset();
     logLine('info', '⚙ Конфіг відрізняється від пресета — далі працюємо в режимі «кастом».');
     renderAll();
     updateHeaderChip(d);
@@ -565,8 +677,7 @@ async function applyPreset(p) {
   if (!await confirmRelaunch(p.body)) return;
   const d = await applyProfile(p.body, 'Пресет «' + p.name + '»');
   if (!d) return;
-  activePresetId = p.id || null;
-  if (p.id) storage.set('activePresetId', String(p.id)); else storage.remove('activePresetId');
+  rememberPreset(p.id);
   renderAll();
   updateHeaderChip(d);
 }
@@ -584,7 +695,7 @@ async function savePreset(p) {
     logLine('error', '❌ Пресет не збережено: ' + e.message);
     return;
   }
-  activePresetId = p.id; storage.set('activePresetId', String(p.id));
+  rememberPreset(p.id);
   const d = await applyProfile(body, 'Пресет «' + p.name + '» оновлено');
   if (d && !d.launchError) { toast('Пресет «' + p.name + '» оновлено й застосовано.', { kind: 'ok' }); dlg.close(); }
 }
@@ -594,7 +705,7 @@ async function createPreset() {
   if (busy) return;
   const name = await promptDialog({
     title: 'Новий пресет', label: 'Назва пресета', value: '⭐ Мій пресет', required: true, okText: 'Створити й застосувати',
-    validate: (v) => (presets.some((p) => p.name === String(v).trim()) ? 'Пресет із такою назвою вже є' : ''),
+    validate: (v) => presetNameError(v, presets, null),
   });
   if (!name || !name.trim()) return;
   const body = draftBody(draft);
@@ -608,7 +719,7 @@ async function createPreset() {
     logLine('error', '❌ Пресет не створено: ' + e.message);
     return;
   }
-  if (r && r.id) { activePresetId = r.id; storage.set('activePresetId', String(r.id)); }
+  if (r && r.id) rememberPreset(r.id);
   const d = await applyProfile(body, 'Пресет «' + name.trim() + '» створено');
   if (d && !d.launchError) { toast('Створено пресет «' + name.trim() + '».', { kind: 'ok' }); dlg.close(); }
 }
@@ -637,7 +748,7 @@ export async function syncFingerprint() {
     if (prof.fingerprint) { updateHeaderChip(prof); return false; }
     if (!presets.length) await loadPresets();
     const active = presets.find((x) => x.id === savedPresetId()) || null;
-    if (!shouldAutoCapture(prof, active)) { updateHeaderChip(prof); return false; }
+    if (!shouldAutoCapture(prof, active, undefined, storage.get('noAutoFp') === '1')) { updateHeaderChip(prof); return false; }
     const d = await api.postProfile({ fingerprint: captureFingerprint() });
     logLine('fp', '🧬 Fingerprint захоплено з цього браузера (у профілі його не було).');
     updateHeaderChip(d);

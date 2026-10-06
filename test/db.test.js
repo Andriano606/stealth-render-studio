@@ -31,16 +31,51 @@ test('presets: create/update/remove (builtin не видаляється)', asyn
   await r.update(5, { name: 'X' });
   assert.deepEqual(q.calls[1].params, [5, 'X', null]); // body не передано → COALESCE лишає старе
   await r.remove(5);
-  assert.match(q.calls[2].sql, /builtin = false/);
+  assert.match(q.calls[2].sql, /DELETE FROM presets WHERE id = \$1 RETURNING id/);
+  assert.doesNotMatch(q.calls[2].sql, /builtin/, 'вбудовані теж можна видаляти');
 });
 
-test('seedPresets: лише в порожню таблицю', async () => {
-  const empty = fakeQ((sql) => (/COUNT/.test(sql) ? { rows: [{ n: 0 }] } : { rows: [] }));
-  assert.equal(await seedPresets(empty, quiet), true);
-  assert.equal(empty.calls.filter((c) => /INSERT INTO presets/.test(c.sql)).length, BUILTIN_PRESETS.length);
-  const full = fakeQ(() => ({ rows: [{ n: 4 }] }));
-  assert.equal(await seedPresets(full, quiet), false);
-  assert.equal(full.calls.length, 1);
+test('presets.update: RETURNING id → true/false', async () => {
+  const hit = createRepos(fakeQ(() => ({ rows: [{ id: 6 }] })));
+  assert.equal(await hit.presets.update(6, { name: 'X' }), true);
+  const miss = createRepos(fakeQ(() => ({ rows: [] })));
+  assert.equal(await miss.presets.update(99, { name: 'X' }), false);
+});
+
+test('presets.remove: true — видалено, false — не знайдено', async () => {
+  const hit = createRepos(fakeQ(() => ({ rows: [{ id: 5 }] })));
+  assert.equal(await hit.presets.remove(5), true);
+  const miss = createRepos(fakeQ(() => ({ rows: [] })));
+  assert.equal(await miss.presets.remove(99), false);
+});
+
+// Фейкова БД для засівання: app_meta + лічильник пресетів.
+function seedDb({ seeded = false, n = 0 } = {}) {
+  return fakeQ((sql) => {
+    if (/FROM app_meta/.test(sql)) return { rows: seeded ? [{ value: '1' }] : [] };
+    if (/COUNT/.test(sql)) return { rows: [{ n }] };
+    return { rows: [] };
+  });
+}
+
+test('seedPresets: нова БД — засіяти вбудовані й поставити прапорець', async () => {
+  const q = seedDb();
+  assert.equal(await seedPresets(q, quiet), true);
+  assert.equal(q.calls.filter((c) => /INSERT INTO presets/.test(c.sql)).length, BUILTIN_PRESETS.length);
+  assert.ok(q.calls.some((c) => /INSERT INTO app_meta/.test(c.sql)));
+});
+
+test('seedPresets: наявна БД з пресетами — лише прапорець, без вставок', async () => {
+  const q = seedDb({ n: 4 });
+  assert.equal(await seedPresets(q, quiet), false);
+  assert.equal(q.calls.filter((c) => /INSERT INTO presets/.test(c.sql)).length, 0);
+  assert.ok(q.calls.some((c) => /INSERT INTO app_meta/.test(c.sql)));
+});
+
+test('seedPresets: уже засіяно, а користувач видалив УСІ пресети — вбудовані НЕ повертаються', async () => {
+  const q = seedDb({ seeded: true, n: 0 });
+  assert.equal(await seedPresets(q, quiet), false);
+  assert.equal(q.calls.length, 1, 'лише перевірка прапорця');
 });
 
 test('пресет Ashby тримає siteIsolationDisabled=true; «All» видалено з вбудованих', () => {

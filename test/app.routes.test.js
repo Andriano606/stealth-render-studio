@@ -175,6 +175,56 @@ test('/presets без БД: GET порожньо, POST → 503 {ok:false}', asyn
   assert.deepEqual(await r.json(), { ok: false, error: 'БД недоступна' });
 });
 
+test('DELETE /presets/:id: будь-який пресет (і вбудований) → ok; неіснуючий → 404', async () => {
+  const store = new Map([[1, { id: 1, name: '🧹 Clear all', builtin: true }], [6, { id: 6, name: 'Ashby 2', builtin: false }]]);
+  db = { presets: {
+    async list() { return [...store.values()]; },
+    async remove(id) { return store.delete(id); },
+  } };
+  try {
+    let r = await fetch(base + '/presets/6', { method: 'DELETE' });
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { ok: true, deleted: true });
+    r = await fetch(base + '/presets/1', { method: 'DELETE' });
+    assert.equal(r.status, 200, 'вбудований теж видаляється');
+    r = await fetch(base + '/presets/99', { method: 'DELETE' });
+    assert.equal(r.status, 404);
+    assert.deepEqual(await r.json(), { ok: false, error: 'Пресет не знайдено' });
+    assert.deepEqual((await (await fetch(base + '/presets')).json()).presets, []);
+  } finally { db = null; }
+});
+
+test('PUT /presets/:id: перейменування — назву обрізано; порожня/задовга → 400; неіснуючий → 404', async () => {
+  const store = new Map([[6, { id: 6, name: 'Ashby 2', body: { a: 1 } }]]);
+  db = { presets: {
+    async list() { return [...store.values()]; },
+    async update(id, { name, body }) {
+      const p = store.get(id); if (!p) return false;
+      if (name !== undefined && name !== null) p.name = name;
+      if (body !== undefined) p.body = body;
+      return true;
+    },
+    async create({ name }) { store.set(7, { id: 7, name: name || 'Новий пресет', body: {} }); return 7; },
+  } };
+  try {
+    let r = await fetch(base + '/presets/6', json('PUT', { name: '  Ashby   CV  ' }));
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { ok: true, name: 'Ashby CV' });
+    assert.equal(store.get(6).name, 'Ashby CV');
+    assert.deepEqual(store.get(6).body, { a: 1 }, 'налаштування пресета не змінились');
+    for (const bad of ['', '   ', 'x'.repeat(81), 5]) {
+      r = await fetch(base + '/presets/6', json('PUT', { name: bad }));
+      assert.equal(r.status, 400, JSON.stringify(bad));
+    }
+    r = await fetch(base + '/presets/6', json('PUT', {}));
+    assert.equal(r.status, 400, 'нічого оновлювати');
+    r = await fetch(base + '/presets/99', json('PUT', { name: 'X' }));
+    assert.equal(r.status, 404);
+    r = await fetch(base + '/presets', json('POST', { name: '   ', body: {} }));
+    assert.equal(r.status, 400, 'створення з порожньою назвою');
+  } finally { db = null; }
+});
+
 test('помилка БД → 500 {ok:false, error}', async () => {
   db = { pages: { async list() { throw new Error('db down'); } } };
   try {

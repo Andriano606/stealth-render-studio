@@ -13,8 +13,8 @@ import {
 import { createRunPlan as prepareRun, applyRunEvent, finishRun } from '../public/js/runner.js';
 import {
   configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody, captureFingerprint,
-  shouldAutoCapture, isAutomatedBrowser, chipInfo, engineName,
-  busyLabel,
+  shouldAutoCapture, presetBlocksAutoFp, isAutomatedBrowser, chipInfo, engineName, stableJson, sameValue, configStatus,
+  busyLabel, presetNameError,
 } from '../public/js/config.js';
 import { validateFields } from '../public/js/dialogs.js';
 import { pushScreen } from '../public/js/viewer.js';
@@ -312,6 +312,22 @@ test('shouldAutoCapture: лише коли fingerprint немає і пресе�
   assert.equal(shouldAutoCapture(null, null), false);
 });
 
+test('shouldAutoCapture: заборона noAutoFp (активний «голий» пресет видалено) — не захоплюємо', () => {
+  const nav = { webdriver: false, userAgent: 'Mozilla/5.0 Chrome/140' };
+  // Свіжа установка (ні пресета, ні заборони) — захоплюємо.
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, nav), true);
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, nav, false), true);
+  // Clear all був активним і його видалили: пресета вже немає, але заборона лишилась.
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, nav, true), false);
+  assert.equal(shouldAutoCapture({ fingerprint: null }, { body: { launch: {} } }, nav, true), false);
+  assert.equal(presetBlocksAutoFp({ clear: true }), true);
+  assert.equal(presetBlocksAutoFp({ fingerprint: null }), true);
+  assert.equal(presetBlocksAutoFp({ fingerprint: { userAgent: 'x' } }), false);
+  assert.equal(presetBlocksAutoFp({ launch: {} }), false);
+  assert.equal(presetBlocksAutoFp(null), false);
+  assert.equal(presetBlocksAutoFp(undefined), false);
+});
+
 test('chipInfo: рушій · пресет / кастом / без пресетів', () => {
   const prof = { launch: { engine: 'chromium', headless: true }, stealth: {}, behavior: {}, fingerprint: null, defaults: { launch: { headless: false } } };
   const presets = [{ id: 1, name: '🛡️ All', body: { launch: { headless: true } } }, { id: 2, name: '☁️ Cloudflare', body: { launch: { engine: 'camoufox' } } }];
@@ -390,4 +406,39 @@ test('автозахоплення fingerprint: headless / керований б
   assert.equal(shouldAutoCapture({ fingerprint: null }, null, real), true);
   assert.equal(shouldAutoCapture({ fingerprint: null }, null, headless), false);
   assert.equal(shouldAutoCapture({ fingerprint: null }, null, driven), false);
+});
+
+// ---------- Пресет із БД (JSONB переставляє ключі) не «відрізняється» ----------
+test('sameValue/stableJson: порядок ключів не важить, значення — так', () => {
+  assert.equal(sameValue({ a: 1, b: { x: 1, y: 2 } }, { b: { y: 2, x: 1 }, a: 1 }), true);
+  assert.equal(sameValue({ a: 1 }, { a: 2 }), false);
+  assert.equal(sameValue([1, 2], [2, 1]), false, 'порядок у масивах важить');
+  assert.equal(sameValue(null, undefined), true);
+  assert.equal(stableJson({ b: 1, a: undefined }), '{"b":1}');
+});
+
+test('реальний випадок «Ashby 2»: fingerprint з переставленими ключами → пресет активний, не «● змінено»', () => {
+  const fpProfile = { userAgent: 'UA', locale: 'uk', languages: ['uk', 'en'], timezoneId: 'Europe/Kiev', platform: 'MacIntel', vendor: 'Google Inc.', hardwareConcurrency: 8, deviceMemory: 16, deviceScaleFactor: 2, screen: { width: 1680, height: 1050, colorDepth: 30 } };
+  // як повертає Postgres JSONB: ключі відсортовано по-своєму
+  const fpPreset = { locale: 'uk', screen: { width: 1680, height: 1050, colorDepth: 30 }, vendor: 'Google Inc.', platform: 'MacIntel', languages: ['uk', 'en'], userAgent: 'UA', timezoneId: 'Europe/Kiev', deviceMemory: 16, deviceScaleFactor: 2, hardwareConcurrency: 8 };
+  const launch = { engine: 'chromium', headless: true, stealthPlugin: true };
+  const prof = { launch, stealth: { webdriver: true }, behavior: { humanize: true }, fingerprint: fpProfile };
+  const presets = [{ id: 6, name: 'Ashby 2', body: { launch: { ...launch }, stealth: { webdriver: true }, behavior: { humanize: true }, fingerprint: fpPreset } }];
+  assert.equal(presetMatches(presets[0].body, prof), true);
+  const st = configStatus(prof, presets, 6);
+  assert.equal(st.mode, 'preset');
+  assert.equal(st.text, '🧩 Chromium · Ashby 2');
+  // справжня різниця — і далі «змінено»
+  const changed = configStatus({ ...prof, fingerprint: { ...fpProfile, locale: 'en' } }, presets, 6);
+  assert.equal(changed.mode, 'changed');
+});
+
+test('presetNameError: порожня, задовга, дубль (крім самого себе)', () => {
+  const presets = [{ id: 1, name: '🧹 Clear all' }, { id: 6, name: 'Ashby 2' }];
+  assert.equal(presetNameError('  ', presets, 6), 'Назва не може бути порожньою');
+  assert.equal(presetNameError('x'.repeat(81), presets, 6), 'Назва — до 80 символів');
+  assert.equal(presetNameError('🧹 Clear all', presets, 6), 'Пресет із такою назвою вже є');
+  assert.equal(presetNameError('Ashby 2', presets, 6), '', 'своя назва — не дубль');
+  assert.equal(presetNameError('  Ashby   2 ', presets, null), 'Пресет із такою назвою вже є', 'пробіли нормалізуються');
+  assert.equal(presetNameError('Ashby CV', presets, 6), '');
 });
