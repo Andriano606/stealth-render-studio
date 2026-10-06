@@ -1,6 +1,7 @@
 // api.js — усі HTTP-виклики до бекенду в одному місці.
 //   createApi(fetchImpl) → { getPages, savePage, deletePage, getProfile, postProfile,
-//                            getPresets, createPreset, updatePreset, deletePreset, renamePreset, upload, replay, stopReplay }
+//                            getPresets, createPreset, updatePreset, deletePreset, renamePreset, upload, replay, stopReplay,
+//                            importBundle }  (експорт бандла — GET-посилання, див. transfer.js exportHref)
 //   api                  — екземпляр на глобальному fetch (для UI).
 //   readNdjson / streamNdjson — читач NDJSON-стріму (/replay, згодом /live) з AbortController.
 //   ApiError             — не-2xx відповідь: message з тіла {error}, status, body.
@@ -132,6 +133,8 @@ export function createApi(fetchImpl = (...a) => globalThis.fetch(...a)) {
     // /replay: перша подія {event:'run', runId}; далі log/status/opened/action/done-action/done|error.
     replay: (body, onEvent, opts) => streamNdjson(fetchImpl, '/replay', body, onEvent, opts),
     stopReplay: (runId) => json('/replay/' + encodeURIComponent(runId) + '/stop', { method: 'POST', body: {} }),
+    // POST /import {bundle (без files[].data), select, onConflict, dryRun} → {ok, presets, scenarios, warnings, summary}.
+    importBundle: (payload) => json('/import', { method: 'POST', body: payload, timeoutMs: 120000 }),
   };
 }
 

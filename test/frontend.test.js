@@ -14,7 +14,7 @@ import { createRunPlan as prepareRun, applyRunEvent, finishRun } from '../public
 import {
   configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody, captureFingerprint,
   shouldAutoCapture, presetBlocksAutoFp, isAutomatedBrowser, chipInfo, engineName, stableJson, sameValue, configStatus,
-  busyLabel, presetNameError, exportUrl,
+  busyLabel, presetNameError, exportUrl, refocusId,
 } from '../public/js/config.js';
 import { validateFields } from '../public/js/dialogs.js';
 import { pushScreen } from '../public/js/viewer.js';
@@ -447,4 +447,14 @@ test('exportUrl: назва/стан пресета в параметрах; к�
   assert.equal(exportUrl({ mode: 'preset', presetName: 'Ashby 2' }), '/profile/export?preset=Ashby+2&status=preset');
   assert.equal(exportUrl({ mode: 'custom', presetName: null }), '/profile/export?status=custom');
   assert.equal(exportUrl(null), '/profile/export');
+});
+
+test('config refocusId: після перерендеру пресетів (імпорт) — фокус на той самий контрол за id, лише всередині модалки', () => {
+  const inside = { id: 'cfgPresetsImport' };
+  const root = { contains: (el) => el === inside };
+  assert.equal(refocusId(inside, root), 'cfgPresetsImport');
+  assert.equal(refocusId({ id: 'trImportGo' }, root), null); // елемент діалогу імпорту, не конфігуратора
+  assert.equal(refocusId({ id: '' }, { contains: () => true }), null);
+  assert.equal(refocusId(null, root), null);
+  assert.equal(refocusId(inside, null), null);
 });

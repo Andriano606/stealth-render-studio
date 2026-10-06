@@ -22,6 +22,9 @@
     <!-- Бейджі стану сервера: «лише в памʼяті», «● LIVE ×N», «сервер недоступний» (js/app.js) -->
     <div id="hdrHealth" class="hdr-health" aria-live="polite"></div>
     <span class="spacer"></span>
+    <!-- Імпорт / експорт УСЬОГО застосунку (пресети + сценарії) — файл-бандл .json (js/transfer.js) -->
+    <button id="importBtn" class="btn btn-secondary btn-icon hdr-io" type="button" aria-label="Імпорт пресетів і сценаріїв з файлу" title="Імпорт пресетів і сценаріїв з файлу (.json)"><span aria-hidden="true">📥</span><span class="label"> Імпорт</span></button>
+    <button id="exportBtn" class="btn btn-secondary btn-icon hdr-io" type="button" aria-label="Експорт усіх пресетів і сценаріїв у файл" title="Експорт усіх пресетів і сценаріїв у файл (.json)"><span aria-hidden="true">📤</span><span class="label"> Експорт</span></button>
     <!-- Чип активного конфігу (рушій · пресет / кастом / ● змінено); клік відкриває конфігуратор -->
     <button id="hdrConfigChip" class="chip" type="button" aria-label="Активний конфіг — відкрити конфігуратор" title="Активний конфіг — відкрити конфігуратор">⚙ …</button>
     <button id="cfgBtn" class="btn btn-secondary btn-icon" type="button" aria-label="Відкрити конфігуратор" title="Конфігуратор контексту">⚙<span class="label"> Конфігуратор</span></button>

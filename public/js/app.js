@@ -8,7 +8,8 @@
 //   runner.js     — прогін ▶ (/replay) і підсумок;  persist.js  — збереження (debounce, черга, бейдж);
 //   recorder.js   — живий запис (LIVE-панель);     live-client.js / liveModel.js — HTTP і чиста логіка сесії;
 //   config.js     — конфігуратор/пресети/чип;      dialogs.js  — <dialog>-діалоги й тости;
-//   dom.js        — h()/escape/copyText;           scenarioModel.js — валідація URL, id, модель з /pages.
+//   dom.js        — h()/escape/copyText;           scenarioModel.js — валідація URL, id, модель з /pages;
+//   transfer.js   — 📤 експорт / 📥 імпорт пресетів і сценаріїв (файл-бандл, lib/transfer.js).
 // Оболонка (тут):
 //   • < 900 px — одна панель за раз: «Сценарії» | «Перегляд» | «Логи» (нижня навігація,
 //     висота 100dvh, бейджі «новий скрін» / «помилки»); emit('ui:pane', name) перемикає;
@@ -23,6 +24,7 @@ import { initViewer } from './viewer.js';
 import { initRecorder } from './recorder.js';
 import { initConfig, syncFingerprint } from './config.js';
 import { initScenarios, loadPages } from './scenarios.js';
+import { initTransfer } from './transfer.js';
 
 export const PANES = ['scenarios', 'viewer', 'logs'];
 export const HEALTH_MS = 8000;
@@ -214,6 +216,7 @@ function boot() {
   initRecorder();
   initConfig();
   initScenarios();
+  initTransfer();
   initShell();
   window.addEventListener('unhandledrejection', (e) => {
     logLine('error', '❌ ' + ((e.reason && e.reason.message) || e.reason));

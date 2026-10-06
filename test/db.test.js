@@ -1,7 +1,7 @@
 // Юніт-тести репозиторіїв БД (lib/db.js) з фейковим query — без Postgres.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRepos, seedPresets, initDb, BUILTIN_PRESETS, redactDbUrl } from '../lib/db.js';
+import { createRepos, seedPresets, initDb, BUILTIN_PRESETS, redactDbUrl, withTransaction } from '../lib/db.js';
 
 function fakeQ(responder = () => ({ rows: [] })) {
   const calls = [];
@@ -100,4 +100,21 @@ test('initDb: успіх → репозиторії', async () => {
 test('redactDbUrl: ховає пароль', () => {
   assert.equal(redactDbUrl('postgres://u:secret@h:5432/db'), 'postgres://u:***@h:5432/db');
   assert.equal(redactDbUrl('postgres://u@h/db'), 'postgres://u@h/db');
+});
+
+test('withTransaction: BEGIN → fn(репозиторії на тому самому клієнті) → COMMIT; збій → ROLLBACK, клієнт звільнено', async () => {
+  const mk = () => {
+    const c = fakeQ((sql) => (/RETURNING id/.test(sql) ? { rows: [{ id: '5' }] } : { rows: [] }));
+    c.released = 0; c.release = () => { c.released++; };
+    return c;
+  };
+  const c1 = mk();
+  const r = await withTransaction({ connect: async () => c1 }, async (repos) => repos.presets.create({ name: 'P', body: {} }));
+  assert.equal(r, 5);
+  assert.deepEqual(c1.calls.map((x) => x.sql.split(' ')[0]), ['BEGIN', 'INSERT', 'COMMIT']);
+  assert.equal(c1.released, 1);
+  const c2 = mk();
+  await assert.rejects(withTransaction({ connect: async () => c2 }, async (repos) => { await repos.pages.upsert(1, {}); throw new Error('boom'); }), /boom/);
+  assert.deepEqual(c2.calls.map((x) => x.sql.split(' ')[0]), ['BEGIN', 'INSERT', 'ROLLBACK']);
+  assert.equal(c2.released, 1);
 });

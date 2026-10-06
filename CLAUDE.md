@@ -60,9 +60,11 @@ npm start                   # http://localhost:3000
 - **Спільні ізоморфні модулі** (без Node-імпортів, роздаються браузеру як ES-модулі
   через білий список `GET /lib/<name>.js`, `SHARED_LIBS` у `lib/app.js`): `steps`, `coords`,
   `locators`, `textTemplate`, `errText` (чищення помилок Playwright: ANSI, «Call log», net::ERR_* →
-  українською; тим самим модулем чистить і сервер — `errorHandler`, `/live`, `/replay`).
+  українською; тим самим модулем чистить і сервер — `errorHandler`, `/live`, `/replay`), `transfer`
+  (бандл експорту/імпорту пресетів і сценаріїв, план конфліктів назв — див. «📦 Експорт / імпорт»).
 - **routes/*.js** — HTTP-роути (render, replay, pages, recordings, presets, upload,
-  profile, health, live); залежності приходять через `createApp(deps)`.
+  profile, health, live, transfer); залежності приходять через `createApp(deps)`. Сховище сценаріїв
+  у памʼяті (без БД) — спільне `d.pagesMem` (pages + transfer).
 - **public/** — фронтенд без збірки (див. розділ «Фронтенд» нижче): `index.html` (лише
   семантична розмітка і точки монтування), `css/*.css`, `js/*.js` — ES-модулі.
 - **scripts/patch-camoufox.mjs** — автопатч бібліотеки camoufox-js (див. нижче).
@@ -131,7 +133,8 @@ Camoufox драйвиться тим самим Playwright (через прот�
   скрін»/«помилки»; старт запису → автоматично «Перегляд»; `emit('ui:pane', name)`).
 - **≥ 900 px** — перегляд+логи зліва, сценарії справа (ширину сайдбара можна тягнути).
 - Хедер: бейджі `/health` («💾 лише в памʼяті», «● LIVE ×N», «⚠ сервер недоступний»), чип конфігу
-  «🧩 Chromium · 📋 Ashby» / «· кастом» / «● змінено» (клік — конфігуратор), бейдж збереження.
+  «🧩 Chromium · 📋 Ashby» / «· кастом» / «● змінено» (клік — конфігуратор), бейдж збереження, 📥 Імпорт / 📤 Експорт усього застосунку (пресети + сценарії;
+  < 1100 px — лише іконки).
 
 ### Живий запис (UX)
 Запису на статичному скріні більше НЕМАЄ: скріни в табах — лише результати.
@@ -230,7 +233,8 @@ follow під час прогону/запису), `scenarioModel` (валіда
 `defaultZoom1`, `applyActResult`, `resolveReattach`, `undoIndex`, `raceIdle`…), `viewer` (таби,
 смуга прогону, порожній стан / картка помилки), `log` (консоль: фільтри, групи, ANSI-чистка,
 `setConsoleCollapsed`), `config` (конфігуратор), `dialogs` (`<dialog>` замість prompt/confirm,
-`toast` з паузою таймера), `dom` (`h()`).
+`toast` з паузою таймера), `dom` (`h()`), `transfer` (діалоги 📤 Експорт / 📥 Імпорт бандла; чиста
+логіка прев'ю/чипів/запиту експортується для тестів).
 **Події**: рекордер → `page:changed` → `scenarios` → `persist`; прогін — `busy`/`pages`/
 `run:finished {page, summary, screen}`; фінальний скрін → `viewer.addScreen(label, src, url,
 {scenario, upto, uptoName, total, ok, failed, degraded, stopped})`; «⟲ Повторити» → `ui:run`.
@@ -300,6 +304,59 @@ Draft-модель: значення не губляться при переми
   сигнали Chromium мають збігатися повністю; у Camoufox fingerprint (ОС, екран, WebGL, ядра)
   випадковий на кожен запуск — збігаються лише структурні сигнали. Тести: `test/exportConfig.test.js`,
   e2e `E2E=1 node --test test/e2e/export.e2e.test.js`.
+
+### 📦 Експорт / імпорт пресетів і сценаріїв (перенесення між машинами)
+Не плутати з 📤 Експортом конфігу (Markdown) вище. Файл `stealth-bundle-<presets|scenarios|all|назва-одного>-<дата>.json`:
+`{format:'stealth-render-studio/bundle', version:1, exportedAt, presets:[{name, body}], scenarios:[{name, url,
+recs:[{name, subs}]}], files:[{fileId, filename, size, data:base64|null, missing?, skipped?:'too_large'|'excluded'}]}`.
+- **Чисто:** без id пресетів/сценаріїв/Дій (на імпорті — нові), без builtin, без runtime-полів (те саме правило,
+  що `pagePayload`: `stripTransient`, кроки `pending` — геть); id КРОКІВ лишаються. Профіль/cookies НЕ експортуються.
+  **Тіло пресета — білий список** `PRESET_BODY_KEYS` (`launch`/`stealth`/`behavior`/`fingerprint`/`clear:true`) і на
+  експорті (`cleanPreset`), і на імпорті (`parseBundle`; відкинуте → попередження «поля … проігноровано»): cookies/
+  storageState з чужого файлу інакше потрапили б у профіль через `applyProfilePatch` (чужа сесія / стерті cookies).
+  **Текст кроків (зокрема введені паролі) іде у файл як є** — діалог експорту це каже і попереджає, якщо ціль
+  текстового кроку схожа на поле пароля (`secretTextSteps`, евристика за описом/локаторами: тип поля не зберігається).
+- **Файли** кроків `type:'file'` вибраних сценаріїв — base64, сумарно ≤ `EXPORT_FILES_MAX_BYTES` (50 МБ); більше →
+  `skipped:'too_large'`, немає на диску → `missing:true`, `files=0` → `skipped:'excluded'` (крок потребуватиме
+  перевибору файлу). На імпорті клієнт сам вантажить вкладені файли через `/upload` (лише для сценаріїв, що
+  створюються/замінюються) і робить `remapFileRefs` — новий fileId, той самий вміст.
+- **Конфлікти** (`planImport`, назви через `normName`, регістр враховується): та сама назва + однаковий зміст
+  (пресет — `body`, сценарій — `{url, recs[{name, subs}]}`, без порядку ключів) → пропуск «= такий самий»
+  за будь-якої стратегії; інший зміст → стратегія блоку: **Перейменувати** (за замовч., `uniqueName`: «X (2)»,
+  продовжує « (N)», обрізає основу) | **Замінити** (перший з такою назвою; сценарій — той самий id) |
+  **Пропустити**. Дубль назви всередині файлу → завжди нова назва (`duplicate_in_bundle`).
+  Ліміти назв: пресет 80, сценарій 200 (як в UI).
+- **API:** `GET /export?presets=<ids|all>&pages=<ids|all>&files=0|1` (без обох — усе; Content-Disposition з
+  `filename*`); `POST /import {bundle, select?:{presets?, scenarios?: індекси}, onConflict?:{presets?, scenarios?},
+  dryRun?}` → `{ok, dryRun, db, presets:[план + id?], scenarios:[…], warnings, summary}`. Сервер авторитетно
+  перевалідовує (`parseBundle`: формат/версія/типи/ліміти, без `__proto__`, символ NUL `\u0000` будь-де → 400 —
+  Postgres його не приймає) і перебудовує план проти ПОТОЧНОГО стану; імпорти — строго по черзі; ліміт тіла 20mb
+  лише на цьому роуті; 400 — людський текст. Запис — ОДНІЄЮ транзакцією (`db.tx` = `withTransaction` у `lib/db.js`):
+  збій посередині → 500 і нічого не записано. Без БД пресети → `skip` `no_db` + попередження, сценарії — у памʼять
+  процесу (лише після побудови всіх записів).
+- **Replace і «такий самий»:** елемент файлу порівнюється лише з існуючими, які НЕ перезаписує вже запланований
+  replace (бандл `[X{a}, X{b}]` проти існуючого `X{b}` → replace + «X (2)» з `{b}`, а не пропуск — інакше `{b}` зник би).
+- **UI** (`public/js/transfer.js`): хедер (верхнє меню) `#importBtn` / `#exportBtn` — увесь застосунок (експорт: УСІ пресети + УСІ сценарії вибрано наперед); меню ⋯ сценарію «📤 Експортувати
+  сценарій» (одразу файл); конфігуратор — `#cfgPresetsExport` / `#cfgPresetsImport` у рядку пресетів. Експорт:
+  чекбокси «Пресети»/«Сценарії» з «усі / жодного», «Включити файли кроків (N)», порожній вибір → кнопка вимкнена з
+  поясненням. Імпорт: файл (кнопка або drag&drop) → прев'ю з чипами плану («новий», «= такий самий є — пропуск»,
+  «конфлікт назви → «X (2)»», «замінить існуючий», «пропуск», «БД недоступна — пропуск»), radio-стратегія на блок,
+  миттєвий перерахунок; під час прогону/запису імпорт вимкнено; перед ним — `flushAllPages()` і перевірка
+  `flushProblem(persistStatus())`: якщо PUT /pages падає (напр. 413 на великому сценарії) — імпорт НЕ починається
+  («спершу «Не збережено · повторити»»), бо `loadPages()` після нього затер би локальні правки. Експорт у такому разі
+  попереджає тостом, що у файлі остання ЗБЕРЕЖЕНА версія. Після імпорту — тост `summary`, лог, `loadPages()`,
+  `presets:changed` (лише якщо пресети створено/замінено; конфігуратор повертає фокус на той самий контрол),
+  фокус на першому імпортованому сценарії. Збій POST /import з 5xx/мережею/таймаутом (`importMayHaveWritten`) →
+  `loadPages()` + перечитані пресети + алерт «міг виконатися частково»; вже завантажені файли кроків кешуються в
+  межах діалогу (повтор не створює нових fileId). Під час імпорту вміст діалогу `inert` (вибір/стратегія —
+  знімок `importSnapshot` на старті), діалог не закривається навіть подвійним Esc (перевідкривається), файл,
+  кинутий будь-куди в діалог, не відкривається браузером. Перерендер списків зберігає їхню прокрутку.
+- **Обмеження:** сценарій із кроком file після імпорту має НОВИЙ fileId, тож повторний імпорт того самого файлу
+  вже не визнає його «таким самим» (конфлікт назви → стратегія). Без БД пресети не переносяться.
+- **Тести:** `test/transfer.test.js` (ядро), `test/transfer.routes.test.js` (роути, фейкова БД, tmp uploads),
+  `test/transfer.ui.test.js` (чиста логіка UI), e2e `E2E=1 node --test test/e2e/transfer.e2e.test.js`
+  (справжній `node server.js` без БД: експорт download-ом, імпорт з конфліктом/пропуском/заміною, 390×844,
+  надійність: drop повз зону, прокрутка, inert/подвійний Esc, 500 → перечитаний список, збій збереження, фокус).
 
 ### Пресети (калібровані)
 (Вбудований пресет «🛡️ All» прибрано — максимальний стелс збирається вручну або через 📋 Ashby.)
@@ -598,7 +655,8 @@ server.js                  # тонка точка входу (init + listen)
 public/index.html          # розмітка UI (точки монтування)
 public/css/*.css           # base (токени/каркас/брейкпоінти), components, scenarios, recorder
 public/js/*.js             # ES-модулі UI (app, api, state, log, viewer, scenarios, stepEditor, runner,
-                           #   persist, recorder, live-client, liveModel, config, dialogs, dom, scenarioModel)
+                           #   persist, recorder, live-client, liveModel, config, dialogs, dom, scenarioModel,
+                           #   transfer)
 lib/app.js                 # createApp(deps): express + роути + error middleware
 lib/config.js              # env: PORT, HOST, ALLOWED_HOSTS, DATABASE_URL, PROFILE_FILE, UPLOAD_DIR
 lib/profile.js             # профіль: дефолти, applyProfilePatch, cookies, profile.json
@@ -613,6 +671,8 @@ lib/capture.js             # hitTest, DESCRIBE_FN, ланцюг iframe, лічи
 lib/live.js                # живі сесії запису: відкриття+префікс, дії, знімки
 lib/steps.js, lib/locators.js, lib/textTemplate.js # спільні (ізоморфні) модулі кроків/локаторів
 lib/errText.js             # спільний (ізоморфний): чищення помилок Playwright для людини
+lib/transfer.js            # спільний (ізоморфний): бандл експорту/імпорту, parseBundle, planImport, uniqueName
+routes/transfer.js         # GET /export, POST /import (пресети + сценарії + файли кроків)
 lib/db.js, lib/uploads.js  # Postgres-репозиторії; завантаження файлів
 lib/logs.js, lib/semaphore.js, lib/http.js, lib/rng.js
 lib/coords.js              # чисті функції координат/скролу (спільний, юніт-тестований)

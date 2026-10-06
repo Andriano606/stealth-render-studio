@@ -6,7 +6,9 @@
 //                             логу; розбіжність із запамʼятованим пресетом → попередження + «● змінено»;
 //   syncFingerprint()       — при старті UI: захоплює fingerprint ЛИШЕ якщо в профілі його немає
 //                             (і активний пресет не «голий»); явна дія — «Захопити з мого браузера»;
-//   updateHeaderChip()      — «🧩 Chromium · 📋 Ashby» / «… · кастом» / «… · 📋 Ashby ● змінено».
+//   updateHeaderChip()      — «🧩 Chromium · 📋 Ashby» / «… · кастом» / «… · 📋 Ashby ● змінено»;
+//   refreshPresets()        — перечитати пресети (подія 'presets:changed' після імпорту).
+// У рядку пресетів — «📤 Експорт пресетів» / «📥 Імпорт» (emit 'ui:export' / 'ui:import' → transfer.js).
 // Кнопки футера: «Застосувати» (draft → профіль; відрізняється від пресета → режим «кастом»),
 // «💾 Оновити пресет «X»» (записати в пресет + застосувати), «➕ Зберегти як новий пресет».
 // Під час застосування — busy-оверлей; launchError/помилки — у плашці всередині модалки.
@@ -15,7 +17,7 @@
 // needsRelaunch, footerState) експортуються для тестів.
 // Draft-модель: значення не губляться при перемиканні категорій; «Застосувати» застосовує.
 import { $, h, clear, escapeHtml } from './dom.js';
-import { state, on, storage } from './state.js';
+import { state, on, emit, storage } from './state.js';
 import { api } from './api.js';
 import { logLine, logRunSep, setLive } from './log.js';
 import { confirmDialog, promptDialog, toast } from './dialogs.js';
@@ -257,6 +259,27 @@ export function initConfig() {
   if (exportBtn) exportBtn.addEventListener('click', exportConfig);
   // Health (живі сесії) змінює попередження про перезапуск — оновлюємо футер.
   on('health', () => { if (dlg.open) renderFooter(); });
+  // Після імпорту (transfer.js) — перечитати пресети: список у модалці й чип у хедері.
+  on('presets:changed', refreshPresets);
+}
+
+export async function refreshPresets() {
+  await loadPresets();
+  if (activePresetId != null && !presets.some((p) => p.id === activePresetId)) activePresetId = null;
+  if (dlg && dlg.open && draft) {
+    // renderAll перебудовує рядок пресетів (і кнопку «📥 Імпорт», на яку щойно повернувся фокус з
+    // діалогу імпорту) — повертаємо фокус на той самий контрол за id.
+    const fid = refocusId(document.activeElement, dlg);
+    renderAll();
+    if (fid && document.activeElement !== $(fid)) { const el = $(fid); if (el) el.focus({ preventScroll: true }); }
+  }
+  updateHeaderChip(); // свіжий профіль із сервера
+}
+
+// Id контролу, на який повернути фокус після перерендеру модалки: лише елемент усередині root з id.
+export function refocusId(active, root) {
+  if (!active || !active.id || !root || typeof root.contains !== 'function') return null;
+  return root.contains(active) ? active.id : null;
 }
 
 async function guardedClose() {
@@ -331,6 +354,19 @@ function renderPresets() {
         on: { click: () => deletePreset(p) },
       })));
   }
+  // Перенесення пресетів між машинами (діалоги — transfer.js, через шину подій; не плутати
+  // з «📤 Експорт» конфігу в Markdown у футері).
+  cfgPresets.appendChild(h('span', { class: 'pre-io' },
+    h('button', {
+      type: 'button', class: 'pre-io-btn', id: 'cfgPresetsExport', disabled: busy || !presets.length,
+      'aria-label': 'Експорт пресетів у файл (.json)', title: presets.length ? 'Експорт пресетів у файл (.json) — для імпорту на іншій машині' : 'Немає пресетів для експорту',
+      on: { click: () => emit('ui:export', { presets: 'all', pages: 'none' }) },
+    }, h('span', { 'aria-hidden': 'true', text: '📤' }), h('span', { class: 'pre-io-label', text: ' Експорт пресетів' })),
+    h('button', {
+      type: 'button', class: 'pre-io-btn', id: 'cfgPresetsImport', disabled: busy,
+      'aria-label': 'Імпорт пресетів і сценаріїв з файлу (.json)', title: 'Імпорт пресетів і сценаріїв з файлу (.json)',
+      on: { click: () => emit('ui:import') },
+    }, h('span', { 'aria-hidden': 'true', text: '📥' }), h('span', { class: 'pre-io-label', text: ' Імпорт' }))));
 }
 
 // URL експорту застосованого конфігу (чиста): назва/стан пресета — лише для заголовка документа.

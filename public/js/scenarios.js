@@ -1,6 +1,6 @@
 // scenarios.js — сайдбар «Сценарій → Дія → крок» (#pagesEl) і дії над ними.
 //   Картка сценарію: назва/URL, ▶ Старт / ⏹ Стоп, ⏺ Записати (▾ «з початку»), ⋯ меню
-//     (перейменувати, змінити URL, дублювати, видалити — з підтвердженням і «Скасувати»).
+//     (перейменувати, змінити URL, дублювати, 📤 експортувати, видалити — з підтвердженням і «Скасувати»).
 //   Дія: згортання, ▶ до цієї Дії, ⏺ Дописати, ⋯ (перейменувати inline, 📎 файл,
 //     ⚡ Оптимізувати, показати рухи, видалити з «Скасувати»).
 //   Крок: іконка + stepLabel + чип здоровʼя (🎯/⚠/📍) + після прогону бейдж стратегії
@@ -13,7 +13,8 @@
 // зберігається (data-fk). Не частіше за кадр.
 // Прогін — runner.js; збереження — persist.js (debounce + черга + бейдж «Не збережено»);
 // запис — recorder.js (recorder.start({page, mode, recId}) / recorder.finish()).
-//   initScenarios(), loadPages(), renderPages(), runPage(pageId, uptoRecId), persistPage(page).
+//   initScenarios(), loadPages(), renderPages(), runPage(pageId, uptoRecId), persistPage(page), focusPageCard(id).
+//   Меню ⋯ сценарію → emit('ui:export-page', page) (експорт — transfer.js).
 import { $, h, clear } from './dom.js';
 import { state, on, emit, isBusy, createExpandStore } from './state.js';
 import { api } from './api.js';
@@ -114,6 +115,16 @@ export async function loadPages() {
   }
   emit('pages');
   emit('screens'); // порожній стан переглядача залежить від наявності сценаріїв
+}
+
+// Фокус на картку сценарію (після імпорту): рендеримо одразу (loadPages лише планує рендер на кадр),
+// розгортаємо в поле зору. → елемент або null.
+export function focusPageCard(id) {
+  renderPages();
+  const el = pagesEl && pagesEl.querySelector('[data-fk="p' + CSS.escape(String(id)) + '-tg"]');
+  if (!el) return null;
+  if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  return el;
 }
 
 // ---------- Keyed-рендер ----------
@@ -299,6 +310,8 @@ function pageHead(p, busy, renaming) {
       { label: '✎ Перейменувати', onClick: () => startRename('p', p.id) },
       { label: '🔗 Змінити URL', onClick: () => editUrl(p) },
       { label: '⧉ Дублювати', onClick: () => duplicatePage(p) },
+      // transfer.js слухає подію (без циклічного імпорту): файл .json зі сценарієм і його файлами кроків.
+      { label: '📤 Експортувати сценарій', onClick: () => emit('ui:export-page', p) },
       { label: '✕ Видалити сценарій', danger: true, onClick: () => deletePage(p) },
     ], busy));
 }

@@ -1,12 +1,13 @@
 // Сценарії (таблиця pages): URL + масив Дій (recs JSONB).
 // Без БД — сховище в памʼяті ПРОЦЕСУ сервера: відповіді мають db:false, memory:true
 // (сценарії переживають перезавантаження вкладки, але не перезапуск сервера).
+// Сховище памʼяті (pagesMem) спільне з routes/transfer.js (імпорт без БД) — створюється в createApp.
 import express from 'express';
 import { asyncHandler } from '../lib/http.js';
 
-export function pagesRoutes({ getDb }) {
+export function pagesRoutes({ getDb, pagesMem }) {
   const r = express.Router();
-  const mem = new Map(); // id → {id, name, url, recs}
+  const mem = pagesMem || new Map(); // id → {id, name, url, recs}
   r.get('/pages', asyncHandler(async (_req, res) => {
     const db = getDb();
     if (!db) return res.json({ ok: true, db: false, memory: true, pages: [...mem.values()].sort((a, b) => a.id - b.id) });

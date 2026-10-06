@@ -14,7 +14,7 @@
 //       Відповідь {db:false} → nodb: дані лише в памʼяті (повторювати марно); {db:false, memory:true} —
 //       сервер тримає сценарії в памʼяті процесу (зберігаємо як завжди, без бейджа «Не збережено»).
 //   savePayload(page) — payload PUT без тимчасових полів і без pending-кроків живого запису;
-//   initPersist() / persistPage(page) / deletePageRemote(id) / persistStatus — екземпляр для UI
+//   initPersist() / persistPage(page) / flushPage(page) / flushAllPages() / deletePageRemote(id) / persistStatus — екземпляр для UI
 //       поверх fetch (PUT/DELETE /pages/:id) + бейдж «Не збережено» в хедері.
 // Під час імпорту DOM не чіпається.
 import { parseJsonResponse } from './api.js';
@@ -188,6 +188,8 @@ export function persistPage(page) {
   });
 }
 export function flushPage(page) { return page ? getQueue().flush(page.id) : Promise.resolve(true); }
+// Відправити все відкладене зараз (перед експортом/імпортом: сервер має бачити свіжий стан).
+export function flushAllPages() { return getQueue().flushAll(); }
 export function deletePageRemote(id) { return getQueue().remove(id); }
 export function markNoDb() { getQueue().setNoDb(true); }
 
