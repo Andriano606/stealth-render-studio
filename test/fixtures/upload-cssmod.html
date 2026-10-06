@@ -8,7 +8,8 @@
   .ashby-application-form-field-entry { margin: 20px; }
   .ashby-application-form-autofill-uploader { position: relative; padding: 16px; border: 1px dashed #999; }
   .ashby-application-form-autofill-input-base-button { width: 160px; height: 40px; }
-  .ashby-application-form-autofill-input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  .ashby-application-form-autofill-input,
+  .ashby-application-form-autofill-input-root > input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
   .gap { height: 480px; }
   .notice { height: 120px; background: #eef; }
 </style></head>
@@ -20,7 +21,13 @@
          ?deploy=2 — новий білд: інший хеш у класах (h2k8p) + зайвий обгортковий div і
                      банер-повідомлення (дрейф верстки: CSS-шлях ламається, все зсувається);
          ?two=1    — два поля файлу (Cover letter вище, Resume нижче), обидві кнопки «Upload File»;
-         ?hidden=1 — поля файлу display:none (як react-dropzone / <input hidden>): боксу немає.
+         ?hidden=1 — поля файлу display:none (як react-dropzone / <input hidden>): боксу немає;
+         ?autofill=1 — ДВА поля файлу, як справжня форма Ashby: угорі «Autofill from resume»
+                     (div#form > div.ashby-application-form-autofill-uploader._container_<хеш>_28 >
+                     div.ashby-application-form-autofill-input-root > input — без класу в самого
+                     input), нижче — звичайне поле Resume. input[type=file] тут неоднозначний (×2),
+                     а шлях без хеш-класу — унікальний. З deploy=2 блок автозаповнення лишається
+                     прямим нащадком #form (змінюється лише хеш), поля — в обгортці.
        Підставлений файл звітується на /log фікстурного сервера: «<поле>:<імʼя файлу>». -->
   <script>
     const q = new URLSearchParams(location.search);
@@ -47,8 +54,18 @@
         '</div>';
       let fields = (q.has('two') ? field('cover', 'Cover letter') + '<div class="gap"></div>' : '') + field('resume', 'Resume');
       if (deploy2) fields = '<div class="notice _notice_' + H + '_2">We updated our application form</div><div class="_stack_' + H + '_7">' + fields + '</div>';
+      if (q.has('autofill')) {
+        fields = '<div class="ashby-application-form-autofill-uploader _container_' + H + '_28" data-key="autofill">' +
+            '<div class="ashby-application-form-question-title _title_' + H + '_5">Autofill from resume</div>' +
+            '<div class="ashby-application-form-autofill-input-root">' +
+              '<button type="button" class="ashby-application-form-autofill-input-base-button _button_' + H + '_41">Upload File</button>' +
+              ' <span class="_chip_' + H + '_9"></span>' +
+              '<input type="file">' +
+            '</div>' +
+          '</div>' + fields;
+      }
       document.body.insertAdjacentHTML('beforeend', '<div id="form" class="_form_' + H + '_1">' + fields + '</div>');
-      document.querySelectorAll('.ashby-application-form-field-entry').forEach((entry) => {
+      document.querySelectorAll('.ashby-application-form-field-entry, [data-key="autofill"]').forEach((entry) => {
         const key = entry.dataset.key;
         entry.removeAttribute('data-key'); // жодних data-* у DOM (інакше це вже семантика)
         const input = entry.querySelector('input[type=file]');

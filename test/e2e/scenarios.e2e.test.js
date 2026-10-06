@@ -125,7 +125,7 @@ const legacyRec = {
     { type: 'text', text: 'h' }, { type: 'text', text: 'i' },
     { type: 'key', key: 'Tab' },
     { v: 2, id: 's_missing', type: 'click', timeout: 1500, target: { frame: null, locs: [{ by: 'role', role: 'button', name: 'Немає такої', exact: true, n: 1 }], pick: 0, kind: 'button', desc: 'кнопка «Немає такої»' } },
-    { v: 2, id: 's_top', type: 'click', target: { frame: null, locs: [{ by: 'css', value: '#nope', n: 1 }, { by: 'role', role: 'button', name: 'Верхня', exact: true, n: 1 }], pick: 0, kind: 'button', desc: 'кнопка «Верхня»' }, x: 200, y: 175 },
+    { v: 2, id: 's_top', type: 'click', target: { frame: null, locs: [{ by: 'css', value: 'button._btn_f7cvd_3', n: 1 }, { by: 'role', role: 'button', name: 'Верхня', exact: true, n: 1 }], pick: 0, kind: 'button', desc: 'кнопка «Верхня»' }, x: 200, y: 175 },
   ],
 };
 
@@ -156,7 +156,7 @@ test('e2e F2: legacy-кроки → ▶ Старт: статуси, страте
     const legacyClick = rec.locator('.subs li[data-si="3"]');
     assert.equal(await legacyClick.locator('.hchip.h-coords').count(), 1);
     assert.equal(await rec.locator('.subs li[data-si="7"] .hchip.h-ok').count(), 1);
-    assert.equal(await rec.locator('.subs li[data-si="8"] .hchip.h-weak').count(), 1, 'css-локатор — слабкий');
+    assert.equal(await rec.locator('.subs li[data-si="8"] .hchip.h-weak').count(), 1, 'css-локатор із хеш-класом — слабкий (CSS зі стабільним id і n=1 тепер 🎯)');
 
     // ▶ Старт
     await card.getByRole('button', { name: /Запустити послідовність/ }).click();
@@ -215,7 +215,7 @@ test('e2e F2: legacy-кроки → ▶ Старт: статуси, страте
     const sel = page.locator('dialog.step-modal form.step-editor select');
     await sel.waitFor();
     const opts = await sel.locator('option').allInnerTexts();
-    assert.deepEqual(opts.map((o) => o.replace(/\s+/g, ' ')), ['#nope ×1', 'role=button[name="Верхня"] ×1', '📍 лише координати']);
+    assert.deepEqual(opts.map((o) => o.replace(/\s+/g, ' ')), ['button._btn_f7cvd_3 ×1', 'role=button[name="Верхня"] ×1', '📍 лише координати']);
     await page.keyboard.press('Escape');
     await page.locator('dialog.step-modal').waitFor({ state: 'detached' });
 
@@ -602,6 +602,326 @@ test('e2e F3: 390×844 — модалка тексту на весь екран,
     await dlg.getByRole('button', { name: 'Зберегти' }).click();
     await dlg.waitFor({ state: 'detached' });
     assert.equal((await rec.locator('.subs li[data-si="0"] .tag', { hasText: '⏱' }).innerText()).trim(), '⏱ +250 мс');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 390);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+// ---------- F4: автопокращення цілі старого кроку «Файл» (⚠ → 🎯 після одного ▶) ----------
+// Старий крок, записаний до локатора input[type=file]: лише CSS-шлях із хеш-класом CSS-модуля
+// (як реальний крок Ashby). Фікстура upload-cssmod.html (поле файлу в same-origin iframe).
+const OLD_FILE_CSS = 'div._container_f7cvd_28 > input._input_f7cvd_50';
+const oldFileStep = (id, up) => ({
+  v: 2, id, type: 'file', fileId: up.fileId, filename: up.filename,
+  target: { pick: 0, frame: { chain: ['iframe#ashby_embed_iframe'] }, locs: [{ n: 1, by: 'css', nth: null, value: OLD_FILE_CSS }] },
+});
+async function uploadFx(name) {
+  const r = await fetch(base + '/upload', { method: 'POST', headers: { 'x-filename': name, 'Content-Type': 'application/octet-stream' }, body: Buffer.from('%PDF-1.4 f4 e2e') });
+  assert.equal(r.status, 200);
+  return r.json();
+}
+// Проміжок між низом останньої Дії і низом картки сценарію (px).
+const lastRecGap = (card) => card.evaluate((c) => {
+  const recs = c.querySelectorAll('.page-recs > .rec');
+  const last = recs[recs.length - 1];
+  return { gap: c.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom, n: recs.length };
+});
+const upgradeLogCount = async (page) => ((await page.locator('#consoleBody').textContent()) || '').split('стане надійнішою').length - 1;
+
+test('e2e F4: старий крок «Файл» (лише CSS з хешем) → ⚠; ▶ Старт → лог 🎯, 🎯 у рядку, GET /pages: pick=type n=1; reload — 🎯; повторний ▶ — без нового upgrade; без проміжку під останньою Дією', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi();
+  const SC = 'F4 upgrade', RN = 'Старий Ashby';
+  try {
+    const up = await uploadFx('cv.pdf');
+    const card = await createScenario(page, SC, FX + '/upload-cssmod.html');
+    await addRec(page, SC, { id: 921, name: RN, subs: [oldFileStep('s_oldfile', up)] });
+    const rec = card.locator('.rec', { hasText: RN });
+    await expandRec(rec);
+    const row = rec.locator('.subs li[data-si="0"]');
+    assert.equal(await row.locator('.hchip.h-weak').count(), 1, 'старий крок — ⚠');
+    await waitServer(page, SC, RN, (s) => s.length === 1 && s[0].target.locs.length === 1, 'засіяний старий крок');
+
+    // Без проміжку під останньою Дією (десктоп).
+    const g = await lastRecGap(card);
+    assert.ok(g.n === 1 && g.gap >= 0 && g.gap <= 1, 'проміжок під останньою Дією: ' + JSON.stringify(g));
+
+    // ▶ Старт → крок ок, файл у полі, лог покращення, 🎯.
+    const ev0 = fxEvents.length;
+    const logs0 = await upgradeLogCount(page);
+    await card.getByRole('button', { name: /Запустити послідовність/ }).click();
+    await card.locator('.sc-lastrun').waitFor({ timeout: 120000 });
+    assert.match(await card.locator('.sc-lastrun').innerText(), /помилок 0/);
+    assert.match(await row.getAttribute('class'), /\bdone\b/);
+    assert.deepEqual(fxEvents.slice(ev0).map((x) => x.e), ['resume:cv.pdf']);
+    const con = await page.locator('#consoleBody').textContent();
+    assert.match(con, /🎯 Ціль «[^»]*» стане надійнішою: input\[type="file"\]/);
+    assert.match(con, /🎯 Надійнішу ціль отримали 1 крок — сценарій збережено\./);
+    assert.equal(await upgradeLogCount(page), logs0 + 1);
+    await row.locator('.hchip.h-ok').waitFor();
+    assert.equal(await row.locator('.hchip.h-weak').count(), 0);
+
+    // Збережено на ТЕСТОВОМУ сервері: pick → {by:'type', n:1}; CSS лишився кандидатом.
+    const subs = await waitServer(page, SC, RN, (s) => { const tg = s[0].target; return tg.locs[tg.pick] && tg.locs[tg.pick].by === 'type'; }, 'pick → type');
+    const tg = subs[0].target;
+    assert.deepEqual(tg.locs[tg.pick], { by: 'type', tag: 'input', value: 'file', n: 1 });
+    assert.ok(tg.locs.some((l) => l.by === 'css' && l.value === OLD_FILE_CSS), 'CSS-кандидат збережено: ' + JSON.stringify(tg.locs));
+    assert.deepEqual(tg.frame, { chain: ['iframe#ashby_embed_iframe'] });
+    assert.equal(subs[0].status, undefined, 'без тимчасових полів');
+
+    // reload → 🎯 лишається.
+    await page.reload();
+    await page.locator('#pagesEl .page').first().waitFor();
+    const card2 = page.locator('.page', { hasText: SC });
+    const rec2 = card2.locator('.rec', { hasText: RN });
+    await expandRec(rec2);
+    const row2 = rec2.locator('.subs li[data-si="0"]');
+    assert.equal(await row2.locator('.hchip.h-ok').count(), 1, 'після reload — 🎯');
+
+    // Повторний ▶ — ок за локатором, без нового покращення.
+    const ev1 = fxEvents.length;
+    const logs1 = await upgradeLogCount(page);
+    await card2.getByRole('button', { name: /Запустити послідовність/ }).click();
+    await card2.locator('.sc-lastrun').waitFor({ timeout: 120000 });
+    assert.match(await card2.locator('.sc-lastrun').innerText(), /помилок 0/);
+    assert.deepEqual(fxEvents.slice(ev1).map((x) => x.e), ['resume:cv.pdf']);
+    assert.match(await row2.locator('.strat').innerText(), /🎯/);
+    assert.equal(await upgradeLogCount(page), logs1, 'повторний прогін не покращує ще раз');
+    // Консоль після reload — лише повторний прогін: ні рядка покращення, ні підсумку.
+    assert.equal(logs1, 0);
+    assert.doesNotMatch((await page.locator('#consoleBody').textContent()) || '', /Надійнішу ціль отримали/);
+    assert.equal(await row2.locator('.hchip.h-ok').count(), 1);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+test('e2e F4: ✎ на свіжому старому кроці «Файл» — input[type="file"] першим у списку; вибір + «Зберегти» зберігається; без проміжку під останньою Дією', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi();
+  const SC = 'F4 editor', RN = 'Старий файл';
+  try {
+    const up = await uploadFx('cv.pdf');
+    const card = await createScenario(page, SC, FX + '/upload-cssmod.html');
+    await addRec(page, SC, { id: 922, name: RN, subs: [oldFileStep('s_oldfile2', up)] });
+    await addRec(page, SC, { id: 923, name: 'Друга', subs: [{ v: 2, id: 's_tab', type: 'key', key: 'Tab' }] });
+    const rec = card.locator('.rec', { hasText: RN });
+    await expandRec(rec);
+    const row = rec.locator('.subs li[data-si="0"]');
+    assert.equal(await row.locator('.hchip.h-weak').count(), 1);
+    const dlg = await openEditor(row);
+    const sel = dlg.getByLabel('Ціль', { exact: true });
+    const opts = (await sel.locator('option').allInnerTexts()).map((o) => o.replace(/\s+/g, ' ').trim());
+    assert.deepEqual(opts, ['input[type="file"]', OLD_FILE_CSS + ' ×1']);
+    assert.equal(await sel.inputValue(), '1', 'спершу вибрано записаний CSS (pick не змінено міграцією)');
+    await sel.selectOption('0');
+    await dlg.getByRole('button', { name: 'Зберегти' }).click();
+    await dlg.waitFor({ state: 'detached' });
+    const subs = await waitServer(page, SC, RN, (s) => s[0].target.pick === 0 && s[0].target.locs[0].by === 'type', 'pick=0 → input[type=file]');
+    assert.deepEqual(subs[0].target.locs.map((l) => l.by), ['type', 'css']);
+    assert.equal(subs[0].fileId, up.fileId);
+    // Після reload вибір на місці.
+    await page.reload();
+    await page.locator('#pagesEl .page').first().waitFor();
+    const rec2 = page.locator('.page', { hasText: SC }).locator('.rec', { hasText: RN });
+    await expandRec(rec2);
+    const dlg2 = await openEditor(rec2.locator('.subs li[data-si="0"]'));
+    assert.equal(await dlg2.getByLabel('Ціль', { exact: true }).inputValue(), '0');
+    await page.keyboard.press('Escape');
+    await dlg2.waitFor({ state: 'detached' });
+    const g = await lastRecGap(page.locator('.page', { hasText: SC }));
+    assert.ok(g.n === 2 && g.gap >= 0 && g.gap <= 1, 'проміжок під останньою Дією: ' + JSON.stringify(g));
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+test('e2e F4: 390 px — остання Дія без проміжку до низу картки (розгорнута і згорнута)', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi({ width: 390, height: 844 });
+  const SC = 'F4 mobile gap';
+  try {
+    const card = await createScenario(page, SC, FX + '/click.html');
+    await addRec(page, SC, { id: 924, name: 'Перша', subs: [{ v: 2, id: 's_g1', type: 'key', key: 'Tab' }] });
+    await addRec(page, SC, { id: 925, name: 'Остання', subs: [{ v: 2, id: 's_g2', type: 'key', key: 'Tab' }, { v: 2, id: 's_g3', type: 'key', key: 'Enter' }] });
+    const last = card.locator('.rec', { hasText: 'Остання' });
+    await expandRec(last);
+    let g = await lastRecGap(card);
+    assert.ok(g.n === 2 && g.gap >= 0 && g.gap <= 1, 'розгорнута: ' + JSON.stringify(g));
+    await last.locator('.rec-head .tg').click();
+    await page.waitForFunction(() => [...document.querySelectorAll('.rec')].some((r) => r.textContent.includes('Остання') && r.querySelector('.rec-head .tg').getAttribute('aria-expanded') === 'false'));
+    g = await lastRecGap(card);
+    assert.ok(g.gap >= 0 && g.gap <= 1, 'згорнута: ' + JSON.stringify(g));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 390);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+// ---------- F5: реальний крок Ashby — input[type=file] ×2, ціль під хеш-класом ----------
+// Збережений крок користувача: pick = input[type=file] (вибрав сам, n невідомий), запасний —
+// CSS-шлях із хешем CSS-модуля. На формі ДВА поля файлу (автозаповнення з резюме + Resume),
+// тож type неоднозначний; міграція додає очищений шлях, він унікальний → після прогону
+// pick переходить на нього (🎯), наступні прогони — без «🔁 альтернативним».
+const ASHBY_HASHED = 'div#form > div.ashby-application-form-autofill-uploader._container_f7cvd_28 > div.ashby-application-form-autofill-input-root > input';
+const ASHBY_CLEAN = 'div#form > div.ashby-application-form-autofill-uploader > div.ashby-application-form-autofill-input-root > input';
+const ashbyUserStep = (id, up) => ({
+  v: 2, id, type: 'file', fileId: up.fileId, filename: up.filename,
+  target: { pick: 0, frame: { chain: ['iframe#ashby_embed_iframe'] }, kind: 'file', desc: 'поле файлу',
+    locs: [{ by: 'type', tag: 'input', value: 'file' }, { by: 'css', value: ASHBY_HASHED, nth: null, n: 1 }] },
+});
+const consoleText = async (page) => (await page.locator('#consoleBody').textContent()) || '';
+const countIn = (s, needle) => s.split(needle).length - 1;
+async function runCard(card) {
+  await card.getByRole('button', { name: /Запустити послідовність/ }).click();
+  await card.locator('.sc-lastrun').waitFor({ timeout: 120000 });
+  assert.match(await card.locator('.sc-lastrun').innerText(), /помилок 0/);
+}
+
+test('e2e F5: крок Ashby (type ×2 + хеш-CSS) → ⚠; ▶ — файл у потрібне поле, лог 🎯 з очищеним CSS, 🎯 у рядку, GET /pages: pick → очищений CSS n=1; reload — 🎯; повтор — без 🔁/🎯-логу; deploy=2 — loc', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi();
+  const SC = 'F5 ashby', RN = 'Ashby резюме';
+  try {
+    const up = await uploadFx('cv.pdf');
+    const card = await createScenario(page, SC, FX + '/upload-cssmod.html?autofill=1');
+    await addRec(page, SC, { id: 931, name: RN, subs: [ashbyUserStep('s_ashby', up)] });
+    const rec = card.locator('.rec', { hasText: RN });
+    await expandRec(rec);
+    const row = rec.locator('.subs li[data-si="0"]');
+    assert.equal(await row.locator('.hchip.h-weak').count(), 1, 'крок користувача — ⚠ (type без n)');
+    await waitServer(page, SC, RN, (s) => s.length === 1 && s[0].target.locs.length === 2, 'засіяний крок');
+    const g = await lastRecGap(card);
+    assert.ok(g.n === 1 && g.gap >= 0 && g.gap <= 1, 'проміжок під останньою Дією: ' + JSON.stringify(g));
+
+    // ▶ Старт: type ×2 → знайдено очищеним CSS (🔁 один раз), файл — у поле автозаповнення.
+    const ev0 = fxEvents.length;
+    await runCard(card);
+    assert.match(await row.getAttribute('class'), /\bdone\b/);
+    assert.deepEqual(fxEvents.slice(ev0).map((x) => x.e), ['autofill:cv.pdf'], 'файл у потрібному полі (не Resume)');
+    const con = await consoleText(page);
+    assert.ok(con.includes('🔁 Ціль «поле файлу» знайдено альтернативним локатором ' + ASHBY_CLEAN), con.slice(-1500));
+    assert.ok(con.includes('🎯 Ціль «поле файлу» стане надійнішою: ' + ASHBY_CLEAN + ' (той самий елемент, 1 збіг)'), con.slice(-1500));
+    assert.equal(countIn(con, 'стане надійнішою'), 1);
+    assert.match(con, /🎯 Надійнішу ціль отримали 1 крок — сценарій збережено\./);
+    await row.locator('.hchip.h-ok').waitFor();
+    assert.equal(await row.locator('.hchip.h-weak').count(), 0);
+
+    // Збережено на ТЕСТОВОМУ сервері: pick → очищений CSS з n=1; type і хешований — кандидати.
+    const subs = await waitServer(page, SC, RN, (s) => { const tg = s[0].target; return tg.locs[tg.pick] && tg.locs[tg.pick].value === ASHBY_CLEAN; }, 'pick → очищений CSS');
+    const tg = subs[0].target;
+    assert.deepEqual(tg.locs[tg.pick], { by: 'css', value: ASHBY_CLEAN, nth: null, n: 1 });
+    assert.deepEqual(tg.locs.map((l) => [l.by, l.value]), [['type', 'file'], ['css', ASHBY_CLEAN], ['css', ASHBY_HASHED]]);
+    assert.deepEqual(tg.frame, { chain: ['iframe#ashby_embed_iframe'] });
+    assert.equal(subs[0].fileId, up.fileId);
+    assert.equal(subs[0].status, undefined, 'без тимчасових полів');
+
+    // reload → 🎯 лишається.
+    await page.reload();
+    await page.locator('#pagesEl .page').first().waitFor();
+    const card2 = page.locator('.page', { hasText: SC });
+    const rec2 = card2.locator('.rec', { hasText: RN });
+    await expandRec(rec2);
+    const row2 = rec2.locator('.subs li[data-si="0"]');
+    assert.equal(await row2.locator('.hchip.h-ok').count(), 1, 'після reload — 🎯');
+
+    // Повторний ▶: знайдено самим pick-ом — без «🔁 альтернативним» і без покращення.
+    const ev1 = fxEvents.length;
+    await runCard(card2);
+    assert.deepEqual(fxEvents.slice(ev1).map((x) => x.e), ['autofill:cv.pdf']);
+    assert.match(await row2.locator('.strat').innerText(), /🎯/);
+    const con2 = await consoleText(page);
+    assert.equal(countIn(con2, 'альтернативним'), 0, con2.slice(-1500));
+    assert.equal(countIn(con2, 'стане надійнішою'), 0);
+    assert.doesNotMatch(con2, /Надійнішу ціль отримали/);
+    assert.equal(await row2.locator('.hchip.h-ok').count(), 1);
+
+    // Новий білд сайту (deploy=2: інший хеш + банер/обгортка): очищений pick і далі — loc.
+    const SC3 = 'F5 ashby deploy2';
+    const card3 = await createScenario(page, SC3, FX + '/upload-cssmod.html?autofill=1&deploy=2');
+    await addRec(page, SC3, { id: 932, name: RN, subs: JSON.parse(JSON.stringify(subs)).map((s) => ({ ...s, id: 's_ashby2' })) });
+    const rec3 = card3.locator('.rec', { hasText: RN });
+    await expandRec(rec3);
+    const row3 = rec3.locator('.subs li[data-si="0"]');
+    assert.equal(await row3.locator('.hchip.h-ok').count(), 1);
+    const ev2 = fxEvents.length;
+    const before3 = await consoleText(page);
+    await runCard(card3);
+    assert.deepEqual(fxEvents.slice(ev2).map((x) => x.e), ['autofill:cv.pdf'], 'deploy=2: файл у потрібному полі');
+    assert.match(await row3.locator('.strat').innerText(), /🎯/);
+    const con3 = (await consoleText(page)).slice(before3.length);
+    assert.equal(countIn(con3, 'альтернативним'), 0, con3.slice(-1500));
+    assert.equal(countIn(con3, 'стане надійнішою'), 0);
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+test('e2e F5: ✎ на кроці Ashby — мігровані кандидати у списку (очищений CSS); вибір + «Зберегти» зберігається; ▶ — n=1 → 🎯', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi();
+  const SC = 'F5 editor', RN = 'Ashby ✎';
+  try {
+    const up = await uploadFx('cv.pdf');
+    const card = await createScenario(page, SC, FX + '/upload-cssmod.html?autofill=1');
+    await addRec(page, SC, { id: 933, name: RN, subs: [ashbyUserStep('s_ashby_ed', up)] });
+    const rec = card.locator('.rec', { hasText: RN });
+    await expandRec(rec);
+    const row = rec.locator('.subs li[data-si="0"]');
+    const dlg = await openEditor(row);
+    const sel = dlg.getByLabel('Ціль', { exact: true });
+    const opts = (await sel.locator('option').allInnerTexts()).map((o) => o.replace(/\s+/g, ' ').trim());
+    assert.deepEqual(opts, ['input[type="file"]', ASHBY_CLEAN, ASHBY_HASHED + ' ×1']);
+    assert.equal(await sel.inputValue(), '0', 'вибрано збережений pick (input[type=file])');
+    await sel.selectOption('1');
+    await dlg.getByRole('button', { name: 'Зберегти' }).click();
+    await dlg.waitFor({ state: 'detached' });
+    const subs = await waitServer(page, SC, RN, (s) => s[0].target.pick === 1 && s[0].target.locs.length === 3, 'pick=1 → очищений CSS');
+    assert.deepEqual(subs[0].target.locs[1], { by: 'css', value: ASHBY_CLEAN, nth: null });
+    assert.deepEqual(subs[0].target.locs.map((l) => l.by), ['type', 'css', 'css']);
+    assert.equal(subs[0].fileId, up.fileId);
+    // reload → вибір на місці.
+    await page.reload();
+    await page.locator('#pagesEl .page').first().waitFor();
+    const card2 = page.locator('.page', { hasText: SC });
+    const rec2 = card2.locator('.rec', { hasText: RN });
+    await expandRec(rec2);
+    const row2 = rec2.locator('.subs li[data-si="0"]');
+    const dlg2 = await openEditor(row2);
+    assert.equal(await dlg2.getByLabel('Ціль', { exact: true }).inputValue(), '1');
+    await page.keyboard.press('Escape');
+    await dlg2.waitFor({ state: 'detached' });
+    // n ще невідомий → ⚠; ▶ — знайдено самим pick-ом (1 збіг) → пряме покращення n=1 → 🎯.
+    assert.equal(await row2.locator('.hchip.h-weak').count(), 1);
+    const ev0 = fxEvents.length;
+    await runCard(card2);
+    assert.deepEqual(fxEvents.slice(ev0).map((x) => x.e), ['autofill:cv.pdf']);
+    const con = await consoleText(page);
+    assert.equal(countIn(con, 'альтернативним'), 0, con.slice(-1500));
+    assert.ok(con.includes('🎯 Ціль «поле файлу» стане надійнішою: ' + ASHBY_CLEAN), con.slice(-1500));
+    await row2.locator('.hchip.h-ok').waitFor();
+    await waitServer(page, SC, RN, (s) => s[0].target.pick === 1 && s[0].target.locs[1].n === 1, 'n=1 після прогону');
+    const g = await lastRecGap(card2);
+    assert.ok(g.n === 1 && g.gap >= 0 && g.gap <= 1, 'проміжок під останньою Дією: ' + JSON.stringify(g));
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
+
+test('e2e F5: 390 px — крок Ashby ▶ → 🎯; остання Дія без проміжку до низу картки', async (t) => {
+  if (!E2E) return t.skip('E2E=1 не задано');
+  const { ctx, page, errors } = await openUi({ width: 390, height: 844 });
+  const SC = 'F5 mobile', RN = 'Ashby 390';
+  try {
+    const up = await uploadFx('cv.pdf');
+    const card = await createScenario(page, SC, FX + '/upload-cssmod.html?autofill=1');
+    await addRec(page, SC, { id: 934, name: 'Перша', subs: [{ v: 2, id: 's_m1', type: 'key', key: 'Tab' }] });
+    await addRec(page, SC, { id: 935, name: RN, subs: [ashbyUserStep('s_ashby_m', up)] });
+    const rec = card.locator('.rec', { hasText: RN });
+    await expandRec(rec);
+    let g = await lastRecGap(card);
+    assert.ok(g.n === 2 && g.gap >= 0 && g.gap <= 1, 'до прогону: ' + JSON.stringify(g));
+    const ev0 = fxEvents.length;
+    await runCard(card);
+    assert.deepEqual(fxEvents.slice(ev0).map((x) => x.e), ['autofill:cv.pdf']);
+    await rec.locator('.subs li[data-si="0"] .hchip.h-ok').waitFor();
+    g = await lastRecGap(card);
+    assert.ok(g.gap >= 0 && g.gap <= 1, 'після прогону: ' + JSON.stringify(g));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth) <= 390);
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }

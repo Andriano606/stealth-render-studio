@@ -7,6 +7,7 @@ import { EventEmitter } from 'events';
 import { runReplay, resolveTarget, resolveScope, hasTarget, hasCoords } from '../lib/replay.js';
 import { nearestRect, scrollPlan } from '../lib/coords.js';
 import { mulberry32 } from '../lib/rng.js';
+import { normalizeStep, applyTargetUpgrade, healthOf } from '../lib/steps.js';
 
 function fakeClock() {
   let t = 0;
@@ -41,7 +42,10 @@ function makeWorld(els = [], opts = {}) {
     };
     return {
       desc,
+      _list: list,
       async count() { return list().length; },
+      // locator.and(other): перетин збігів (той самий елемент — за ідентичністю).
+      and(o) { return loc(() => { const b = o._list(); return list().filter((e) => b.includes(e)); }, desc + ' & ' + o.desc); },
       nth(k) { return loc(() => { const l = list(); return l[k] ? [l[k]] : []; }, desc + '>>nth=' + k); },
       first() { return this.nth(0); },
       async boundingBox() { const e = one(); return e.hidden ? null : { ...e.box }; },
@@ -57,7 +61,7 @@ function makeWorld(els = [], opts = {}) {
         if (!opt) throw new Error('no option ' + JSON.stringify(v));
         w.selects.push({ id: e.id, value: opt.value });
       },
-      async setInputFiles(p) { w.files.push({ id: one().id, path: p }); },
+      async setInputFiles(p) { const e = one(); if (e.filesFail) throw new Error('setInputFiles: element is not attached'); w.files.push({ id: e.id, path: p }); },
     };
   }
   function scope(frame) {
@@ -69,7 +73,7 @@ function makeWorld(els = [], opts = {}) {
       getByTestId: (v) => loc(() => matchIn(frame, (e) => e.testid === v), 'testid=' + v),
       locator: (css) => {
         if (css.startsWith('iframe')) return loc(() => (w.iframes[css] && !w.iframes[css].gone ? [{ id: css, box: { x: 0, y: 0, width: 1, height: 1 } }] : []), css);
-        return loc(() => matchIn(frame, (e) => e.css === css), css);
+        return loc(() => matchIn(frame, (e) => e.css === css || (e.alsoCss || []).includes(css)), css);
       },
       frameLocator: (sel) => scope(w.iframes[sel] ? w.iframes[sel].frame : '?'),
     };
@@ -489,6 +493,201 @@ test('file v2: input[type=file] ×2 без геометрії (прихован�
   const w2 = makeWorld([{ id: 'cover', css: 'input[type="file"]', box: { x: 20, y: 100, width: 1, height: 1 } }, { id: 'resume', css: 'input[type="file"]', box: { x: 20, y: 700, width: 1, height: 1 } }]);
   const r2 = await resolveTarget(fakePage(w2), { ...t2, box: { x: 20, y: 700, w: 1, h: 1 } }, { clock: fakeClock() });
   assert.equal(r2.strategy, 'nth'); assert.equal(r2.nth, 1);
+});
+
+// ---------- Покращення цілі після успішного кроку (findUpgrade → done-action.upgrade) ----------
+// Старий крок «Файл» (як Ashby): pick — CSS-шлях із хеш-класом, серед кандидатів — input[type=file].
+const OLD_CSS = 'div._container_f7cvd_28 > input._input_f7cvd_50';
+const typeFile = { by: 'type', tag: 'input', value: 'file' };
+const fileStep = (locs, extra = {}) => ({ v: 2, type: 'file', fileId: 'x', filename: 'cv.pdf', target: tgt(locs, { kind: 'file', box: null, desc: 'поле файлу' }), ...extra });
+
+test('upgrade: знайдено CSS-шляхом, input[type=file] — той самий елемент і 1 збіг → done-action.upgrade {idx} + лог 🎯', async () => {
+  const w = makeWorld([{ id: 'cv', css: OLD_CSS, alsoCss: ['input[type="file"]'], box: { x: 20, y: 100, width: 1, height: 1 } }]);
+  const r = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile])], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].strategy, 'loc');
+  assert.deepEqual(r.dones[0].upgrade, { idx: 1 });
+  assert.deepEqual(w.files, [{ id: 'cv', path: '/up/cv.pdf' }]);
+  assert.ok(r.logs.some((l) => /🎯 Ціль .* стане надійнішою: input\[type="file"\]/.test(l)), r.logs.join('\n'));
+});
+
+test('upgrade: input[type=file] має 1 збіг, але це ІНШИЙ елемент → без upgrade і без логу', async () => {
+  const w = makeWorld([
+    { id: 'real', css: OLD_CSS, box: { x: 20, y: 100, width: 1, height: 1 } }, // не input[type=file]
+    { id: 'other', css: 'input[type="file"]', box: { x: 20, y: 700, width: 1, height: 1 } },
+  ]);
+  const r = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile])], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.deepEqual(w.files.map((f) => f.id), ['real']);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)));
+});
+
+test('upgrade: кандидат — той самий елемент, але збігів 2 → без upgrade', async () => {
+  const w = makeWorld([
+    { id: 'cv', css: OLD_CSS, alsoCss: ['input[type="file"]'], box: { x: 20, y: 100, width: 1, height: 1 } },
+    { id: 'cl', css: 'input[type="file"]', box: { x: 20, y: 700, width: 1, height: 1 } },
+  ]);
+  const r = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile])], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].upgrade, undefined);
+});
+
+test('upgrade: крок упав (знайдено CSS-шляхом, але клік перекрито і координат немає) → без upgrade', async () => {
+  const w = makeWorld([btn('b', { css: OLD_CSS, blocked: true })]);
+  const t = tgt([{ by: 'css', value: OLD_CSS, n: 1 }, role('button', 'Submit')]);
+  const r = await run([{ v: 2, type: 'click', target: t, timeout: 300 }], w);
+  assert.equal(r.dones[0].ok, false);
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)));
+  // Контроль: той самий крок без перекриття — upgrade на role=button (тобто відмова вище — через збій).
+  const w2 = makeWorld([btn('b', { css: OLD_CSS })]);
+  const r2 = await run([{ v: 2, type: 'click', target: t, timeout: 300 }], w2);
+  assert.equal(r2.dones[0].ok, true);
+  assert.deepEqual(r2.dones[0].upgrade, { idx: 1 });
+});
+
+test('upgrade: вимкнений (disabled) крок → без upgrade', async () => {
+  const w = makeWorld([{ id: 'cv', css: OLD_CSS, alsoCss: ['input[type="file"]'], box: { x: 20, y: 100, width: 1, height: 1 } }]);
+  const r = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile], { disabled: true })], w);
+  assert.equal(r.dones[0].upgrade, undefined);
+});
+
+test('upgrade: семантичний локатор з невідомим n знайшов 1 збіг → пряме upgrade {idx: pick} (без перевірки інших)', async () => {
+  const w = makeWorld([{ id: 'cv', css: '#cv', box: { x: 20, y: 100, width: 1, height: 1 } }]);
+  const r = await run([fileStep([{ by: 'id', value: 'cv' }, { by: 'css', value: OLD_CSS, n: 1 }])], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.deepEqual(r.dones[0].upgrade, { idx: 0 });
+  assert.ok(r.logs.some((l) => /стане надійнішою: #cv/.test(l)), r.logs.join('\n'));
+});
+
+test('upgrade: pick 🎯 (role n=1) не знайдено, 🔁 через text → pick не міняється', async () => {
+  const w = makeWorld([btn('b1')]);
+  const t = tgt([role('button', 'Надіслати'), { by: 'text', value: 'Submit' }]);
+  const r = await run([{ v: 2, type: 'click', target: t }], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].healed, true);
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)), r.logs.join('\n'));
+});
+
+test('upgrade: знайдено далеко (> 400px) від записаного боксу → без upgrade', async () => {
+  const far = { box: { x: 20, y: 1200, width: 1, height: 1 } };
+  const w = makeWorld([{ id: 'cv', css: OLD_CSS, alsoCss: ['input[type="file"]'], ...far }]);
+  const r = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile], { target: tgt([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile], { kind: 'file', desc: 'поле файлу', box: { x: 20, y: 100, w: 1, h: 1 } }) })], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.ok(r.logs.some((l) => /від місця запису/.test(l)), r.logs.join('\n'));
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)));
+  // контроль: той самий світ і бокс поруч → upgrade є
+  const w2 = makeWorld([{ id: 'cv', css: OLD_CSS, alsoCss: ['input[type="file"]'], box: { x: 20, y: 100, width: 1, height: 1 } }]);
+  const r2 = await run([fileStep([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile], { target: tgt([{ by: 'css', value: OLD_CSS, n: 1 }, typeFile], { kind: 'file', desc: 'поле файлу', box: { x: 20, y: 100, w: 1, h: 1 } }) })], w2);
+  assert.deepEqual(r2.dones[0].upgrade, { idx: 1 });
+});
+
+test('upgrade: уже 🎯 (семантичний n=1) → без upgrade', async () => {
+  const w = makeWorld([{ id: 'cv', css: '#cv', alsoCss: ['input[type="file"]'], box: { x: 20, y: 100, width: 1, height: 1 } }]);
+  const r = await run([fileStep([{ by: 'id', value: 'cv', n: 1 }, { ...typeFile, n: 1 }])], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].upgrade, undefined);
+});
+
+// ---------- Реальний кейс Ashby: input[type=file] ×2 (автозаповнення + резюме) ----------
+// Збережений крок користувача: pick = input[type=file] (без n), запасний — CSS-шлях із хеш-класом
+// CSS-модуля. Міграція (normalizeStep) додає очищену копію шляху перед хешованим оригіналом.
+const ASHBY_HASHED = 'div#form > div.ashby-application-form-autofill-uploader._container_f7cvd_28 > div.ashby-application-form-autofill-input-root > input';
+const ASHBY_CLEAN = 'div#form > div.ashby-application-form-autofill-uploader > div.ashby-application-form-autofill-input-root > input';
+const ASHBY_HASHED2 = ASHBY_HASHED.replace('f7cvd', 'h2k8p'); // новий білд сайту
+const TYPE_SEL = 'input[type="file"]';
+const ashbyStep = (extra = {}) => normalizeStep({
+  v: 2, id: 's_ashby', type: 'file', fileId: 'x', filename: 'cv.pdf',
+  target: { pick: 0, frame: null, kind: 'file', box: null, desc: 'поле файлу',
+    locs: [{ by: 'type', tag: 'input', value: 'file' }, { by: 'css', value: ASHBY_HASHED, nth: null, n: 1 }] },
+  ...extra,
+});
+// Два поля файлу: ціль (autofill, під стабільними класами + хеш) і резюме (інша гілка форми).
+const ashbyWorld = (autofill = {}, hashed = ASHBY_HASHED) => makeWorld([
+  { id: 'autofill', css: hashed, alsoCss: [TYPE_SEL, ASHBY_CLEAN], box: { x: 20, y: 100, width: 1, height: 1 }, ...autofill },
+  { id: 'resume', css: 'div#form > div.ashby-application-form-field-entry > input', alsoCss: [TYPE_SEL], box: { x: 20, y: 700, width: 1, height: 1 } },
+]);
+
+test('Ashby: міграція старого кроку — очищений CSS перед хешованим, pick лишається на input[type=file]', () => {
+  const s = ashbyStep();
+  assert.deepEqual(s.target.locs.map((l) => [l.by, l.value]), [['type', 'file'], ['css', ASHBY_CLEAN], ['css', ASHBY_HASHED]]);
+  assert.equal(s.target.pick, 0);
+  assert.equal(healthOf(s), 'weak');
+  // ідемпотентно: повторна нормалізація не дублює кандидатів
+  assert.deepEqual(normalizeStep(s).target.locs, s.target.locs);
+});
+
+test('Ashby: type неоднозначний (2 поля) + очищений CSS унікальний → 🔁 alt, файл у правильне поле, upgrade → очищений CSS; повтор — без heal і без upgrade', async () => {
+  const s = ashbyStep();
+  const w = ashbyWorld();
+  const r = await run([s], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].strategy, 'loc-alt');
+  assert.equal(r.dones[0].healed, true);
+  assert.deepEqual(r.dones[0].upgrade, { idx: 1 });
+  assert.deepEqual(w.files, [{ id: 'autofill', path: '/up/cv.pdf' }]);
+  const up = r.logs.find((l) => /стане надійнішою/.test(l));
+  assert.ok(up, r.logs.join('\n'));
+  assert.ok(up.startsWith('🎯 Ціль «'), up);
+  assert.ok(up.includes('стане надійнішою: ' + ASHBY_CLEAN + ' '), up);
+  assert.ok(!up.includes('f7cvd'), 'у лозі — очищений шлях, не хешований: ' + up);
+
+  // UI застосовує upgrade до збереженого кроку: pick → очищений CSS з n=1 → 🎯.
+  const t2 = applyTargetUpgrade(s.target, r.dones[0].upgrade.idx);
+  assert.deepEqual(t2.locs[t2.pick], { by: 'css', value: ASHBY_CLEAN, nth: null, n: 1 });
+  const s2 = normalizeStep({ ...s, target: t2 });
+  assert.equal(healthOf(s2), 'semantic');
+  assert.deepEqual(s2.target.locs.length, 3, 'нормалізація оновленого кроку нічого не додає');
+
+  // Повторний прогін: знайдено самим pick-ом → loc, без 🔁 і без 🎯.
+  const w2 = ashbyWorld();
+  const r2 = await run([s2], w2);
+  assert.equal(r2.dones[0].ok, true);
+  assert.equal(r2.dones[0].strategy, 'loc');
+  assert.equal(r2.dones[0].healed, undefined);
+  assert.equal(r2.dones[0].upgrade, undefined);
+  assert.deepEqual(w2.files.map((f) => f.id), ['autofill']);
+  assert.ok(!r2.logs.some((l) => /альтернативним|стане надійнішою/.test(l)), r2.logs.join('\n'));
+
+  // Новий білд (хеш змінився): очищений pick і далі знаходить те саме поле.
+  const w3 = ashbyWorld({}, ASHBY_HASHED2);
+  const r3 = await run([s2], w3);
+  assert.equal(r3.dones[0].ok, true);
+  assert.equal(r3.dones[0].strategy, 'loc');
+  assert.deepEqual(w3.files.map((f) => f.id), ['autofill']);
+  assert.ok(!r3.logs.some((l) => /альтернативним|стане надійнішою/.test(l)), r3.logs.join('\n'));
+});
+
+test('Ashby: знайдено хешованим pick-ом, очищений CSS унікальний, але це ІНШИЙ елемент → без upgrade', async () => {
+  // pick — хешований шлях (n=1); очищена копія знаходить рівно 1 елемент, але не той.
+  const s = normalizeStep({
+    v: 2, id: 's_x', type: 'file', fileId: 'x', filename: 'cv.pdf',
+    target: { pick: 0, frame: null, kind: 'file', box: null, locs: [{ by: 'css', value: ASHBY_HASHED, nth: null, n: 1 }, { by: 'type', tag: 'input', value: 'file' }] },
+  });
+  assert.deepEqual(s.target.locs.map((l) => l.value), [ASHBY_CLEAN, ASHBY_HASHED, 'file']);
+  assert.equal(s.target.pick, 1);
+  const w = makeWorld([
+    { id: 'real', css: ASHBY_HASHED, alsoCss: [TYPE_SEL], box: { x: 20, y: 100, width: 1, height: 1 } },
+    { id: 'decoy', css: ASHBY_CLEAN, alsoCss: [TYPE_SEL], box: { x: 20, y: 700, width: 1, height: 1 } },
+  ]);
+  const r = await run([s], w);
+  assert.equal(r.dones[0].ok, true);
+  assert.equal(r.dones[0].strategy, 'loc');
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.deepEqual(w.files.map((f) => f.id), ['real']);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)), r.logs.join('\n'));
+});
+
+test('Ashby: крок упав (setInputFiles кинув) → без upgrade і без логу 🎯', async () => {
+  const w = ashbyWorld({ filesFail: true });
+  const r = await run([ashbyStep()], w);
+  assert.equal(r.dones[0].ok, false);
+  assert.equal(r.dones[0].upgrade, undefined);
+  assert.deepEqual(w.files, []);
+  assert.ok(!r.logs.some((l) => /стане надійнішою/.test(l)), r.logs.join('\n'));
 });
 
 test('scroll v2 з vx/vy — спершу рух миші в точку, потім колесо', async () => {
