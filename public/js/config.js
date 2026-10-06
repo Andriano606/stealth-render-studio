@@ -203,7 +203,7 @@ export function footerState({ unsaved, dirty, activeName, presetsDb }) {
 }
 
 // ---------- Стан модалки ----------
-let dlg, cfgNav, cfgPresets, cfgBody, saveBtn, updBtn, newBtn, hintEl, alertEl, busyEl;
+let dlg, cfgNav, cfgPresets, cfgBody, saveBtn, updBtn, newBtn, hintEl, alertEl, busyEl, exportBtn;
 let cfgState = null, draft = null, activeCat = 'engine';
 let presets = [], activePresetId = null; // пресети з БД + активний (вибраний користувачем)
 let presetsDb = true;
@@ -253,6 +253,8 @@ export function initConfig() {
   saveBtn.addEventListener('click', onSave);
   if (updBtn) updBtn.addEventListener('click', () => { const p = activePreset(); if (p) savePreset(p); });
   if (newBtn) newBtn.addEventListener('click', createPreset);
+  exportBtn = $('cfgExport');
+  if (exportBtn) exportBtn.addEventListener('click', exportConfig);
   // Health (живі сесії) змінює попередження про перезапуск — оновлюємо футер.
   on('health', () => { if (dlg.open) renderFooter(); });
 }
@@ -331,6 +333,27 @@ function renderPresets() {
   }
 }
 
+// URL експорту застосованого конфігу (чиста): назва/стан пресета — лише для заголовка документа.
+export function exportUrl(status) {
+  const q = new URLSearchParams();
+  if (status && status.presetName) q.set('preset', status.presetName);
+  if (status && status.mode) q.set('status', status.mode);
+  const s = q.toString();
+  return '/profile/export' + (s ? '?' + s : '');
+}
+
+// 📤 Експорт: завантажує Markdown зі специфікацією ЗАСТОСОВАНОГО конфігу + client.mjs.
+function exportConfig() {
+  if (!cfgState) return;
+  const st = configStatus(cfgState, presets, savedPresetId());
+  const a = h('a', { href: exportUrl(st), download: '' });
+  document.body.appendChild(a); a.click(); a.remove();
+  const name = st.mode === 'preset' || st.mode === 'changed' ? '«' + st.presetName + '»' : 'кастом';
+  if (hasUnsaved()) toast('Експортовано ЗАСТОСОВАНИЙ конфіг (' + name + '). Незастосовані зміни в експорт не потрапили — спершу «Застосувати».', { kind: 'warn', timeout: 8000 });
+  else toast('Експорт конфігу ' + name + ' завантажується (.md).', { kind: 'ok' });
+  logLine('info', '📤 Експорт конфігу ' + name + ' (Markdown: специфікація + client.mjs, без cookies).');
+}
+
 // Перевірка нової назви пресета (чиста): порожня / задовга / вже є в іншого → текст помилки.
 export function presetNameError(value, presets, selfId) {
   const name = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -355,6 +378,7 @@ async function renamePreset(p) {
   } catch (e) {
     showAlert('❌ Пресет не перейменовано: ' + e.message);
     logLine('error', '❌ Пресет не перейменовано: ' + e.message);
+    if (e.status === 404) { await loadPresets(); renderAll(); } // видалено деінде — прибрати зі списку
     return;
   }
   await loadPresets();

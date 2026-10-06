@@ -14,7 +14,7 @@ import { createRunPlan as prepareRun, applyRunEvent, finishRun } from '../public
 import {
   configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody, captureFingerprint,
   shouldAutoCapture, presetBlocksAutoFp, isAutomatedBrowser, chipInfo, engineName, stableJson, sameValue, configStatus,
-  busyLabel, presetNameError,
+  busyLabel, presetNameError, exportUrl,
 } from '../public/js/config.js';
 import { validateFields } from '../public/js/dialogs.js';
 import { pushScreen } from '../public/js/viewer.js';
@@ -441,4 +441,10 @@ test('presetNameError: порожня, задовга, дубль (крім са
   assert.equal(presetNameError('Ashby 2', presets, 6), '', 'своя назва — не дубль');
   assert.equal(presetNameError('  Ashby   2 ', presets, null), 'Пресет із такою назвою вже є', 'пробіли нормалізуються');
   assert.equal(presetNameError('Ashby CV', presets, 6), '');
+});
+
+test('exportUrl: назва/стан пресета в параметрах; кастом — без них', () => {
+  assert.equal(exportUrl({ mode: 'preset', presetName: 'Ashby 2' }), '/profile/export?preset=Ashby+2&status=preset');
+  assert.equal(exportUrl({ mode: 'custom', presetName: null }), '/profile/export?status=custom');
+  assert.equal(exportUrl(null), '/profile/export');
 });

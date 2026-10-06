@@ -225,6 +225,20 @@ test('PUT /presets/:id: перейменування — назву обріза
   } finally { db = null; }
 });
 
+test('GET /profile/export: Markdown-вкладення з client.mjs; ?format=json — специфікація', async () => {
+  const r = await fetch(base + '/profile/export?preset=' + encodeURIComponent('Ashby 2') + '&status=preset');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/markdown/);
+  assert.match(r.headers.get('content-disposition'), /attachment; .*filename\*=UTF-8''stealth-config-ashby-2-/);
+  const md = await r.text();
+  assert.match(md, /^# Конфіг браузера «Ashby 2»/);
+  assert.match(md, /## Готовий клієнт/);
+  const j = await (await fetch(base + '/profile/export?format=json')).json();
+  assert.equal(j.ok, true);
+  assert.ok(['chromium', 'camoufox'].includes(j.spec.engine));
+  assert.ok(j.spec.versions && typeof j.spec.versions === 'object');
+});
+
 test('помилка БД → 500 {ok:false, error}', async () => {
   db = { pages: { async list() { throw new Error('db down'); } } };
   try {
