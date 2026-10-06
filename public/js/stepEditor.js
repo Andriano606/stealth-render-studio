@@ -11,7 +11,7 @@
 //   pluralUk(n, forms)          — 1 рух / 2 рухи / 5 рухів.
 // DOM: buildEditor(step, {onSave, onCancel}) → <form> редактора (створюється лише під час виклику).
 import { $, h } from './dom.js';
-import { healthOf, escapeTemplate, templatePreview, TRANSIENT_FIELDS, MAX_DELAY_AFTER } from '../../lib/steps.js';
+import { healthOf, escapeTemplate, templatePreview, TRANSIENT_FIELDS, MAX_DELAY_AFTER, normalizeStep } from '../../lib/steps.js';
 import { specToString } from '../../lib/locators.js';
 
 export function pluralUk(n, [one, few, many]) {
@@ -46,8 +46,16 @@ export function countLevel(n) {
 const hasXY = (s) => !!s && Number.isFinite(Number(s.x)) && Number.isFinite(Number(s.y)) && s.x !== null && s.y !== null;
 
 // [{value: '0'…'-1', text, level}] для <select>; [] — якщо в кроку немає цілі.
+// Ціль кроку в нормалізованому вигляді — з мігрованими кандидатами (напр. input[type=file]
+// для старих кроків «Файл»), щоб їх можна було вибрати в редакторі. id не генеруємо.
+export function editTarget(step) {
+  if (!step || !step.target) return null;
+  const n = normalizeStep({ ...step, id: step.id != null && step.id !== '' ? step.id : '_' });
+  return n ? n.target : null;
+}
+
 export function candidateOptions(step) {
-  const t = step && step.target;
+  const t = editTarget(step);
   if (!t || !Array.isArray(t.locs)) return [];
   const out = t.locs.map((l, i) => ({
     value: String(i),
@@ -68,7 +76,7 @@ const isLegacyText = (s) => s && s.type === 'text' && s.v == null;
 
 export function editorValues(step) {
   const s = step || {};
-  const t = s.target;
+  const t = editTarget(s);
   return {
     type: s.type,
     pick: t ? String(Number.isInteger(t.pick) ? t.pick : 0) : null,
@@ -102,6 +110,7 @@ export function applyEdit(step, values) {
   for (const k of TRANSIENT_FIELDS) delete next[k];
 
   if (next.target && v.pick != null) {
+    next.target = editTarget(step) || next.target; // індекси — як у списку кандидатів редактора
     const p = Number(v.pick);
     const n = (next.target.locs || []).length;
     if (!Number.isInteger(p) || p < -1 || p >= n || (p === -1 && !hasXY(next))) errors.pick = 'Невідомий варіант цілі';

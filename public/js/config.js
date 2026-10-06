@@ -6,7 +6,7 @@
 //                             логу; розбіжність із запамʼятованим пресетом → попередження + «● змінено»;
 //   syncFingerprint()       — при старті UI: захоплює fingerprint ЛИШЕ якщо в профілі його немає
 //                             (і активний пресет не «голий»); явна дія — «Захопити з мого браузера»;
-//   updateHeaderChip()      — «🧩 Chromium · 🛡️ All» / «… · кастом» / «… · 🛡️ All ● змінено».
+//   updateHeaderChip()      — «🧩 Chromium · 📋 Ashby» / «… · кастом» / «… · 📋 Ashby ● змінено».
 // Кнопки футера: «Застосувати» (draft → профіль; відрізняється від пресета → режим «кастом»),
 // «💾 Оновити пресет «X»» (записати в пресет + застосувати), «➕ Зберегти як новий пресет».
 // Під час застосування — busy-оверлей; launchError/помилки — у плашці всередині модалки.
@@ -94,8 +94,16 @@ export function captureFingerprint(nav = globalThis.navigator, win = globalThis,
 // Автозахоплення при старті: лише якщо в профілі fingerprint немає і запамʼятований
 // пресет не вимагає «без fingerprint» (Clear all / явне fingerprint:null) —
 // інакше кожне перезавантаження UI змінювало б умови тесту.
-export function shouldAutoCapture(profile, activePreset) {
+// Автоматизований браузер (Playwright/headless, напр. скрипт-скріншот UI) НЕ захоплюємо:
+// інакше в профіль потрапить «HeadlessChrome» UA і фейковий екран — прямий маячок бота.
+export function isAutomatedBrowser(nav = globalThis.navigator) {
+  if (!nav) return false;
+  return nav.webdriver === true || /Headless/i.test(String(nav.userAgent || ''));
+}
+
+export function shouldAutoCapture(profile, activePreset, nav = globalThis.navigator) {
   if (!profile || profile.fingerprint) return false;
+  if (isAutomatedBrowser(nav)) return false;
   const b = activePreset && activePreset.body;
   if (b && (b.clear || b.fingerprint === null)) return false;
   return true;

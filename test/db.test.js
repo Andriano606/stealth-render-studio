@@ -43,10 +43,10 @@ test('seedPresets: лише в порожню таблицю', async () => {
   assert.equal(full.calls.length, 1);
 });
 
-test('пресети All/Ashby тримають siteIsolationDisabled=true', () => {
-  for (const name of ['🛡️ All', '📋 Ashby']) {
-    assert.equal(BUILTIN_PRESETS.find((p) => p.name === name).body.launch.siteIsolationDisabled, true);
-  }
+test('пресет Ashby тримає siteIsolationDisabled=true; «All» видалено з вбудованих', () => {
+  assert.equal(BUILTIN_PRESETS.find((p) => p.name === '📋 Ashby').body.launch.siteIsolationDisabled, true);
+  assert.equal(BUILTIN_PRESETS.some((p) => /All$/.test(p.name) && !/Clear/.test(p.name)), false);
+  assert.deepEqual(BUILTIN_PRESETS.map((p) => p.name), ['🧹 Clear all', '☁️ Cloudflare', '📋 Ashby']);
 });
 
 test('initDb: недоступна БД → null (режим у пам\'яті), пул закрито', async () => {

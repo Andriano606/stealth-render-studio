@@ -14,7 +14,8 @@
 //   finishRun(page, plan) — скинути прапорці прогону.
 // ІМПУРНІ: runScenario(page, uptoRecId, opts) і stopRun() — стан у state.run, події 'busy'/'pages'.
 // Під час імпорту DOM не чіпається.
-import { flattenScenario, stepLabel, formatDelay } from '../../lib/steps.js';
+import { flattenScenario, stepLabel, formatDelay, applyTargetUpgrade } from '../../lib/steps.js';
+import { specToString } from '../../lib/locators.js';
 import { cleanError, humanError } from '../../lib/errText.js';
 import { state, emit, isBusy } from './state.js';
 import { pluralUk } from './stepEditor.js';
@@ -98,6 +99,18 @@ export function applyRunEvent(plan, ev) {
     if (result.skipped && result.error && !ev.aborted) a.error = result.error; // напр. необовʼязковий
     if (failed && ev.failShot && k === 0) a.failShot = ev.failShot; // знімок — лише на першому рядку злитого кроку
   });
+  // Покращення цілі (той самий елемент, унікальний надійний локатор): оновлюємо збережений
+  // крок — ⚠ стає 🎯 без перезапису. Лише для кроку з однієї під-дії (злитий текст не чіпаємо).
+  const fl = plan.flat && plan.flat[ev.index];
+  if (ev.upgrade && ev.ok && subs.length === 1 && m.subIdxs.length === 1 && fl && fl.target) {
+    const t = applyTargetUpgrade(fl.target, ev.upgrade.idx);
+    if (t) {
+      subs[0].target = t;
+      fl.target = t;
+      result.upgraded = specToString(t.locs[t.pick]);
+      plan.upgraded = (plan.upgraded || 0) + 1;
+    }
+  }
   return { rec: m.rec, subs, index: ev.index, result };
 }
 
@@ -226,6 +239,10 @@ export async function runScenario(page, uptoRecId, { skipMoves = true, deps } = 
     const stopped = !!(state.run && state.run.stopping) || !!ctx.aborted;
     state.running = false; state.run = null;
     finishRun(page, plan);
+    if (plan.upgraded) {
+      d.logLine('info', '🎯 Надійнішу ціль отримали ' + plan.upgraded + ' ' + pluralUk(plan.upgraded, ['крок', 'кроки', 'кроків']) + ' — сценарій збережено.');
+      emit('page:changed', { page, pageId: page.id, reason: 'upgrade' });
+    }
     const sum = summarizeRun(plan, { done: ctx.done, error: ctx.error, stopped });
     if (!sum.ms) sum.ms = Date.now() - t0;
     page.lastRun = sum;

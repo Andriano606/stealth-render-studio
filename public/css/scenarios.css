@@ -42,7 +42,9 @@
 .sc-recstop { flex: 1 1 100%; background: var(--bg-btn-2); color: var(--danger-soft); border-color: var(--rec); }
 @media (pointer: coarse) { .page-actions .btn { min-height: var(--touch); } }
 
-.page-recs { padding-bottom: 8px; }
+/* Остання Дія доходить до самого низу рамки сценарію (без проміжку під нею). */
+.page-recs { padding-bottom: 0; }
+.page-recs > .rec:last-child { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; }
 .sc-norecs { padding: 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
 
 /* ---------- Дія ---------- */

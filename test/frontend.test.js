@@ -13,7 +13,7 @@ import {
 import { createRunPlan as prepareRun, applyRunEvent, finishRun } from '../public/js/runner.js';
 import {
   configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody, captureFingerprint,
-  shouldAutoCapture, chipInfo, engineName,
+  shouldAutoCapture, isAutomatedBrowser, chipInfo, engineName,
   busyLabel,
 } from '../public/js/config.js';
 import { validateFields } from '../public/js/dialogs.js';
@@ -378,4 +378,16 @@ test('createApi: звичайні запити без тайм-ауту (без 
   const api = createApi(async (url, init) => { seen = init; return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }); });
   await api.getProfile();
   assert.equal(seen.signal, undefined);
+});
+
+test('автозахоплення fingerprint: headless / керований браузер не захоплюємо', () => {
+  const real = { webdriver: false, userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36' };
+  const headless = { webdriver: false, userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 HeadlessChrome/154.0.0.0 Safari/537.36' };
+  const driven = { webdriver: true, userAgent: real.userAgent };
+  assert.equal(isAutomatedBrowser(real), false);
+  assert.equal(isAutomatedBrowser(headless), true);
+  assert.equal(isAutomatedBrowser(driven), true);
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, real), true);
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, headless), false);
+  assert.equal(shouldAutoCapture({ fingerprint: null }, null, driven), false);
 });

@@ -756,3 +756,38 @@ test('editorValues/applyEdit: delayAfter — показ, збереження, �
   assert.equal(r.step.delayAfter, 400);
   assert.equal(r.step.v, undefined);
 });
+
+// ---------- Покращення цілі з події done-action.upgrade ----------
+test('applyRunEvent: upgrade оновлює збережений крок (⚠ → 🎯); злитий текст не чіпає', () => {
+  const oldFile = { v: 2, id: 'f1', type: 'file', fileId: 'x', filename: 'cv.pdf',
+    target: { pick: 0, frame: null, locs: [{ n: 1, by: 'css', nth: null, value: 'div#form > div.uploader._container_f7cvd_28 > input' }] } };
+  const page = { id: 1, name: 'S', url: 'u', recs: [{ id: 7, name: 'Дія 1', subs: [oldFile] }] };
+  const plan = createRunPlan(page, undefined, { skipMoves: true });
+  // flattenScenario мігрував ціль: input[type=file] (0), очищений CSS без хешу (1), оригінал (2)
+  assert.deepEqual(plan.flat[0].target.locs.map((l) => [l.by, l.value]), [['type', 'file'], ['css', 'div#form > div.uploader > input'], ['css', 'div#form > div.uploader._container_f7cvd_28 > input']]);
+  assert.equal(plan.flat[0].target.pick, 2);
+  // чиста структура («div#form > div > input» без якоря на елементі) — не додається
+  const bare = createRunPlan({ id: 2, name: 'S', url: 'u', recs: [{ id: 8, name: 'Д', subs: [{ ...oldFile, id: 'f2',
+    target: { pick: 0, frame: null, locs: [{ n: 1, by: 'css', nth: null, value: 'div#form > div._container_f7cvd_28 > input' }] } }] }] }, undefined, { skipMoves: true });
+  assert.deepEqual(bare.flat[0].target.locs.map((l) => [l.by, l.value]), [['type', 'file'], ['css', 'div#form > div._container_f7cvd_28 > input']]);
+  applyRunEvent(plan, { event: 'action', index: 0 });
+  const r = applyRunEvent(plan, { event: 'done-action', index: 0, ok: true, strategy: 'loc', ms: 10, upgrade: { idx: 0 } });
+  const saved = page.recs[0].subs[0];
+  assert.equal(saved.target.pick, 0);
+  assert.deepEqual(saved.target.locs[0], { by: 'type', tag: 'input', value: 'file', n: 1 });
+  assert.equal(r.result.upgraded, 'input[type="file"]');
+  assert.equal(plan.upgraded, 1);
+  // збережене (payload) — без тимчасових полів, з новою ціллю
+  const payload = pagePayload(page);
+  assert.equal(payload.recs[0].subs[0].target.pick, 0);
+  assert.equal(payload.recs[0].subs[0].status, undefined);
+});
+
+test('applyRunEvent: upgrade ігнорується для невдалого кроку', () => {
+  const step = { v: 2, id: 'c1', type: 'click', target: { pick: 1, locs: [{ by: 'role', role: 'button', name: 'OK' }, { by: 'css', value: 'b', n: 1 }] } };
+  const page = { id: 1, name: 'S', url: 'u', recs: [{ id: 7, name: 'Д', subs: [step] }] };
+  const plan = createRunPlan(page, undefined, { skipMoves: true });
+  applyRunEvent(plan, { event: 'done-action', index: 0, ok: false, error: 'x', upgrade: { idx: 0 } });
+  assert.equal(page.recs[0].subs[0].target.pick, 1);
+  assert.equal(plan.upgraded, undefined);
+});

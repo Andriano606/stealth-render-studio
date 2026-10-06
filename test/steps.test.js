@@ -8,7 +8,7 @@ import {
   needsFocusClick, sameTarget, inheritTextTarget, healthOf, stepLabel, stepIcon, isSideEffectStep,
   keyToStep, textBufferReduce, flushTextBuffer, countMoves, compactMoves, isLegacyStep, isBareModifier,
   isFocusNeutralKey, TRANSIENT_FIELDS, delayAfterMs, formatDelay, MAX_DELAY_AFTER,
-  textTemplateOf, nextVisibleIndex, canMergeText, mergeTextSteps,
+  textTemplateOf, nextVisibleIndex, canMergeText, mergeTextSteps, upgradeCandidates, applyTargetUpgrade,
 } from '../lib/steps.js';
 import { detectDeviceGids } from '../lib/coords.js';
 
@@ -609,4 +609,89 @@ test('normalizeStep: старий крок «Файл» лише з CSS → до
 
 test('healthOf: input[type=file] без підрахунку (n невідомий) — ⚠', () => {
   assert.equal(healthOf({ v: 2, type: 'file', target: { pick: 0, locs: [{ by: 'type', tag: 'input', value: 'file' }] } }), 'weak');
+});
+
+// ---------- Покращення цілі після успішного відтворення (⚠ → 🎯) ----------
+test('upgradeCandidates: слабкий CSS → перевірити семантичні; семантичний з n=1 — нічого; n невідомий → лише уточнити', () => {
+  const t = { pick: 1, locs: [{ by: 'type', tag: 'input', value: 'file' }, { by: 'css', value: 'div > input', n: 1 }, { by: 'text', value: 'x' }] };
+  assert.deepEqual(upgradeCandidates(t, 1, 1), { direct: null, list: [0, 2] });
+  assert.deepEqual(upgradeCandidates(t, 0, 1), { direct: 0, list: [] }, 'знайдено семантичним із n невідомим → записати n=1');
+  assert.deepEqual(upgradeCandidates(t, 0, 2), { direct: null, list: [2] }, 'семантичний, але кілька збігів → перевірити інші');
+  assert.deepEqual(upgradeCandidates({ pick: 0, locs: [{ by: 'role', role: 'button', name: 'OK', n: 1 }] }, 0, 1), { direct: null, list: [] }, 'вже 🎯');
+  assert.deepEqual(upgradeCandidates(null, 0, 1), { direct: null, list: [] });
+});
+
+test('upgradeCandidates: pick уже 🎯 (надійний, n=1) — разовий 🔁 через інший локатор його не міняє', () => {
+  const t = { pick: 0, locs: [{ by: 'role', role: 'button', name: 'Submit', n: 1 }, { by: 'text', value: 'Submit' }, { by: 'css', value: 'div#form > div.actions > button', nth: null, n: 1 }] };
+  assert.deepEqual(upgradeCandidates(t, 1, 1), { direct: null, list: [] }, 'text не перебиває role');
+  assert.deepEqual(upgradeCandidates(t, 2, 1), { direct: null, list: [] }, 'стабільний CSS не перебиває role');
+  // два надійні локатори не «пінг-понгують»: після будь-якого 🔁 pick лишається
+  const q = { ...t, pick: 2 };
+  assert.deepEqual(upgradeCandidates(q, 0, 1), { direct: null, list: [] });
+  // обраний користувачем стабільний CSS з n=1 — теж не чіпаємо
+  assert.deepEqual(upgradeCandidates({ pick: 1, locs: [{ by: 'role', role: 'button', name: 'Submit' }, { by: 'css', value: 'div.actions > button.submit', nth: null, n: 1 }] }, 0, 1), { direct: null, list: [] });
+  // а слабкий pick (семантичний, але n≠1) і далі покращується
+  assert.deepEqual(upgradeCandidates({ ...t, locs: [{ ...t.locs[0], n: 2 }, ...t.locs.slice(1)] }, 2, 1), { direct: 2, list: [] });
+  // структурний CSS (якір лише на #root) не вважається надійним — не ціль покращення
+  assert.deepEqual(upgradeCandidates({ pick: 0, locs: [{ by: 'css', value: 'div.css-1x2y3z > b', n: 1 }, { by: 'css', value: 'div#root > div > div > button', nth: null }] }, 1, 1), { direct: null, list: [] });
+});
+
+test('applyTargetUpgrade: pick → idx, n=1, інші поля цілі збережено; вхід не мутується', () => {
+  const t = { pick: 1, frame: { chain: ['iframe#x'] }, desc: 'поле файлу', box: { x: 1, y: 2, w: 3, h: 4 },
+    locs: [{ by: 'type', tag: 'input', value: 'file' }, { by: 'css', value: 'div > input', n: 1 }] };
+  const snap = JSON.stringify(t);
+  const u = applyTargetUpgrade(t, 0);
+  assert.equal(JSON.stringify(t), snap);
+  assert.equal(u.pick, 0);
+  assert.equal(u.locs[0].n, 1);
+  assert.deepEqual(u.frame, t.frame);
+  assert.equal(u.desc, 'поле файлу');
+  assert.equal(healthOf({ type: 'file', target: u }), 'semantic');
+  assert.equal(applyTargetUpgrade(t, 9), null);
+});
+
+// ---------- Старі CSS-шляхи з хешем: очищена копія + стабільний CSS = 🎯 ----------
+const ASHBY = 'div#form > div.ashby-application-form-autofill-uploader._container_f7cvd_28 > div.ashby-application-form-autofill-input-root > input';
+const ASHBY_CLEAN = 'div#form > div.ashby-application-form-autofill-uploader > div.ashby-application-form-autofill-input-root > input';
+
+test('normalizeStep: перед CSS-шляхом із хешем додається очищена копія; pick зсувається, оригінал лишається', () => {
+  const step = { v: 2, id: 's', type: 'file', target: { pick: 0, frame: null, locs: [{ n: 1, by: 'css', nth: null, value: ASHBY }] } };
+  const n = normalizeStep(step);
+  assert.deepEqual(n.target.locs.map((l) => [l.by, l.value]), [['type', 'file'], ['css', ASHBY_CLEAN], ['css', ASHBY]]);
+  assert.equal(n.target.pick, 2, 'pick і далі на оригіналі — переведе «покращення цілі»');
+  // ідемпотентно
+  const again = normalizeStep(n);
+  assert.equal(again.target.locs.length, 3);
+  assert.equal(again.target.pick, 2);
+  // CSS з nth не чіпаємо
+  const nth = normalizeStep({ v: 2, id: 'x', type: 'click', target: { pick: 0, locs: [{ by: 'css', value: 'div.css-1x2y3z > b', nth: 1 }] } });
+  assert.equal(nth.target.locs.length, 1);
+});
+
+test('healthOf: CSS лише зі стабільних класів і n=1 → 🎯; з хешем / без підрахунку / з nth → ⚠', () => {
+  const h = (loc) => healthOf({ type: 'file', target: { pick: 0, locs: [loc] } });
+  assert.equal(h({ by: 'css', value: ASHBY_CLEAN, nth: null, n: 1 }), 'semantic');
+  assert.equal(h({ by: 'css', value: ASHBY, nth: null, n: 1 }), 'weak');
+  assert.equal(h({ by: 'css', value: ASHBY_CLEAN, nth: null }), 'weak');
+  assert.equal(h({ by: 'css', value: 'div.card', nth: 2, n: 1 }), 'weak');
+  assert.equal(h({ by: 'css', value: 'div > input', nth: null, n: 1 }), 'weak');
+});
+
+test('реальний випадок: обрано input[type=file], а на сторінці 2 поля → прогін веде до очищеного CSS і робить його pick', () => {
+  const saved = { v: 2, id: 's', type: 'file', target: { pick: 0, frame: null, locs: [{ by: 'type', tag: 'input', value: 'file' }, { n: 1, by: 'css', nth: null, value: ASHBY }] } };
+  assert.equal(healthOf(saved), 'weak');
+  const n = normalizeStep(saved);
+  const cleanIdx = n.target.locs.findIndex((l) => l.by === 'css' && l.value === ASHBY_CLEAN);
+  // відтворення: type ×2 (неоднозначно) → знайдено очищеним CSS (1 збіг) → пряме оновлення
+  assert.deepEqual(upgradeCandidates(n.target, cleanIdx, 1), { direct: cleanIdx, list: [] });
+  // так само, якщо type вже рахувався і має 2 збіги (не 🎯)
+  const n2 = { ...n.target, locs: n.target.locs.map((l, i) => (i === n.target.pick ? { ...l, n: 2 } : l)) };
+  assert.deepEqual(upgradeCandidates(n2, cleanIdx, 1), { direct: cleanIdx, list: [] });
+  const up = applyTargetUpgrade(n.target, cleanIdx);
+  assert.equal(healthOf({ type: 'file', target: up }), 'semantic');
+  // наступний прогін: уже 🎯, нічого не міняємо
+  assert.deepEqual(upgradeCandidates(normalizeStep({ ...saved, target: up }).target, cleanIdx, 1), { direct: null, list: [] });
+  // якщо знайдено оригінальним (з хешем) — кандидати на перевірку «той самий елемент»
+  const origIdx = n.target.locs.findIndex((l) => l.value === ASHBY);
+  assert.deepEqual(upgradeCandidates(n.target, origIdx, 1).list, [0, cleanIdx]);
 });

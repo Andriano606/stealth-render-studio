@@ -7,6 +7,7 @@ import {
   rankWithCounts, targetFromDesc, cssEscapeAttr, cssEscapeIdent, frameSelector, frameUrlPattern,
   originPath, matchGlob, frameSpecFrom, matchFrame, pickNearest, pointInBox, specToString, toPlaywright,
   MAX_LOCS,
+  stripUnstableClasses, isStableCss,
 } from '../lib/locators.js';
 
 const seq = (...vals) => { let i = 0; return () => vals[i++ % vals.length]; };
@@ -326,4 +327,33 @@ test('buildCssPath: хеш styled-components поруч із sc-… не пот�
   assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['sc-bdVaJa', 'kQfLtv'] }, { tag: 'input' }]), 'body > div > input');
   assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['sc-bdVaJa', 'button'] }, { tag: 'input' }]), 'body > div.button > input', 'звичайний клас на styled-компоненті лишається');
   assert.equal(buildCssPath([{ tag: 'body' }, { tag: 'div', classes: ['navItem', 'myBtnOk'] }, { tag: 'input' }]), 'body > div.navItem.myBtnOk > input');
+});
+
+// ---------- Очищення збереженого CSS-шляху від хеш-класів ----------
+const ASHBY_CSS = 'div#form > div.ashby-application-form-autofill-uploader._container_f7cvd_28 > div.ashby-application-form-autofill-input-root > input';
+test('stripUnstableClasses: прибирає лише згенеровані класи (реальний шлях Ashby)', () => {
+  assert.equal(stripUnstableClasses(ASHBY_CSS), 'div#form > div.ashby-application-form-autofill-uploader > div.ashby-application-form-autofill-input-root > input');
+  assert.equal(stripUnstableClasses('a.btn.css-1x2y3z > span'), 'a.btn > span');
+  assert.equal(stripUnstableClasses('div.card > p.title'), 'div.card > p.title', 'стабільне — без змін');
+  assert.equal(stripUnstableClasses('#root > div.Button_root__xKqzT'), '#root > div', 'id лишається, хеш-клас іде');
+});
+
+test('isStableCss: стабільні класи/id без nth і з якорем', () => {
+  assert.equal(isStableCss(stripUnstableClasses(ASHBY_CSS)), true);
+  assert.equal(isStableCss(ASHBY_CSS), false, 'містить хеш');
+  assert.equal(isStableCss('div > input'), false, 'без жодного класу/id — лише структура');
+  assert.equal(isStableCss('div.a:nth-of-type(2) > input'), false);
+  assert.equal(isStableCss('#cv'), true);
+  // якір лише на далекому предку + голі теги — це структура DOM, не ознака елемента
+  assert.equal(isStableCss('div#app > div > div > input'), false);
+  assert.equal(isStableCss('div#root > div > div > button'), false);
+  assert.equal(isStableCss('body > div.container > div > input'), false);
+  assert.equal(isStableCss('div#form > div > button'), false);
+  assert.equal(isStableCss(stripUnstableClasses('div#root > div._a_x7f3k_1 > div._b_q9z2m_4 > input')), false);
+  assert.equal(isStableCss('div#root div > div > div > div > input'), false, 'обрізаний довгий шлях');
+  // якір на самому елементі або його батькові
+  assert.equal(isStableCss('form#login > input'), true);
+  assert.equal(isStableCss('div.foo > input'), true);
+  assert.equal(isStableCss('div.x input[name="a b"]'), true, 'пробіл в атрибуті не ріже сегмент');
+  assert.equal(isStableCss(''), false);
 });
