@@ -34,9 +34,17 @@ module ConductorHelpers
   MAX_INDEX    = 100
 
   # --- paths ----------------------------------------------------------------
+  # The MAIN checkout. The scripts may run from a workspace's own copy (the .sh
+  # wrappers delegate to it), so without CONDUCTOR_ROOT_PATH ask git for the
+  # repo every worktree shares instead of assuming "parent of this folder".
   def root_path
     p = ENV['CONDUCTOR_ROOT_PATH'].to_s
-    p.empty? ? File.expand_path('..', __dir__) : p
+    return p unless p.empty?
+
+    @root_path ||= begin
+      out, st = Open3.capture2('git', '-C', __dir__, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+      st.success? && !out.strip.empty? ? File.dirname(out.strip) : File.expand_path('..', __dir__)
+    end
   end
 
   def workspace_root
@@ -48,8 +56,10 @@ module ConductorHelpers
     __dir__
   end
 
+  # Shared by ALL workspaces (port index registry, import bundle): always the
+  # main checkout's conductor/.state, whichever copy of the scripts is running.
   def state_dir
-    dir = File.join(conductor_dir, '.state')
+    dir = File.join(root_path, 'conductor', '.state')
     FileUtils.mkdir_p(dir)
     dir
   end
@@ -68,7 +78,7 @@ module ConductorHelpers
   end
 
   # 📦 Bundle (presets + scenarios + step files) imported into every NEW workspace DB.
-  # Lives in the gitignored .state/ of the scripts folder (it may hold typed form
+  # Lives in the main checkout's gitignored conductor/.state/ (it may hold typed form
   # text and attached files), override with CONDUCTOR_IMPORT_BUNDLE=<path>.
   def import_bundle_path
     p = ENV['CONDUCTOR_IMPORT_BUNDLE'].to_s

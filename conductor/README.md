@@ -9,9 +9,12 @@ Lifecycle-скрипти для **ізольованих воркспейсів 
 /home/andrii/Documents/stealth-render-studio/conductor  <- ЦЯ ТЕКА (у репо, тека conductor/)
 ```
 
-Тека закомічена в репо застосунку, але Conductor викликає скрипти саме з **основного
-checkout** за абсолютним шляхом (копії в worktree-воркспейсах не використовуються).
-Стан `.state/` — у `conductor/.gitignore`.
+Тека закомічена в репо застосунку. Conductor викликає скрипти **основного checkout** за
+абсолютним шляхом, але `.sh`-обгортки одразу передають виконання **копії з самого
+воркспейсу** (маркер `# conductor-delegate: v1`): новий воркспейс — це свіжий `main`, тож
+зміни скриптів діють без pull основного checkout. `CONDUCTOR_NO_DELEGATE=1` — вимкнути.
+Спільний стан `.state/` (реєстр портів, `import-bundle.json`) — завжди в основному checkout
+(`conductor/.state/`, у `conductor/.gitignore`), хоч яка копія виконується.
 
 ## Підключення до Conductor
 
