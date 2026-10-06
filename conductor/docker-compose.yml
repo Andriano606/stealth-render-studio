@@ -1,0 +1,32 @@
+name: stealth-cdt
+
+# Shared dev infrastructure for ALL Stealth Render Studio Conductor workspaces.
+# Per-workspace isolation is by database name (stealth_dev_<slug>), NOT by
+# container — so this file uses a fixed container name and is brought up
+# idempotently (`up -d`).
+#
+# Host port is deliberately non-default: 5432 (mysql!), 5433 and 5436 are
+# already taken on this machine, so Postgres is published on 5437. Workspaces
+# are pointed here via injected DATABASE_URL — never by editing the app.
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: stealth-cdt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stealth
+      POSTGRES_PASSWORD: stealth
+      POSTGRES_DB: stealth          # default DB; per-workspace DBs are created by setup
+    ports:
+      - "5437:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stealth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg_data:

@@ -1,0 +1,13 @@
+{
+  "$comment": [
+    "REFERENCE TEMPLATE — Conductor does not read this file.",
+    "Conductor runs these scripts from the MAIN checkout by absolute path (worktree copies are unused).",
+    "Configure these commands in Conductor -> Settings -> stealth-render-studio -> Setup / Run / Archive."
+  ],
+  "scripts": {
+    "setup": "bash /home/andrii/Documents/stealth-render-studio/conductor/setup.sh",
+    "run": "bash /home/andrii/Documents/stealth-render-studio/conductor/run.sh",
+    "archive": "bash /home/andrii/Documents/stealth-render-studio/conductor/archive.sh"
+  },
+  "runScriptMode": "concurrent"
+}
