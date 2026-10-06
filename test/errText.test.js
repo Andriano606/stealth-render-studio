@@ -39,3 +39,9 @@ test('humanError: таймаут Playwright → «не відповіла вча
   assert.equal(humanError('Помилка відкриття'), 'Помилка відкриття');
   assert.equal(humanError(new Error('x\x1b[2my')), 'xy');
 });
+
+test('humanError: Camoufox не завантажено → підказка npm run fetch-camoufox', () => {
+  const m = 'Version information not found at /home/u/.cache/camoufox/version.json. Please run `camoufox fetch` to install.';
+  assert.match(humanError(m), /^Camoufox не встановлено — виконай `npm run fetch-camoufox`/);
+  assert.match(humanError(new Error(m)), /fetch-camoufox/);
+});

@@ -9,6 +9,7 @@ import { applyProfilePatch, fullConfig } from '../lib/profile.js';
 import { buildConfigExport, cleanName } from '../lib/exportConfig.js';
 import { stealthEvasions } from '../lib/stealth.js';
 import { PROJECT_ROOT } from '../lib/config.js';
+import { humanError } from '../lib/errText.js';
 
 // Версії ключових пакетів (з node_modules/*/package.json) — для відтворюваності експорту.
 const EXPORT_PKGS = ['playwright', 'playwright-core', 'playwright-extra', 'puppeteer-extra-plugin-stealth', 'camoufox-js'];
@@ -44,7 +45,7 @@ export function profileRoutes({ profileStore, engine, log = console }) {
 
     let relaunched = false, launchError = null;
     if (launchChanged) {
-      await engine.relaunchBrowser().catch((e) => { launchError = String(e && e.message || e); });
+      await engine.relaunchBrowser().catch((e) => { launchError = humanError(e); });
       relaunched = true;
     } else {
       await engine.drainPool().catch(() => {}); // просто оновити пул
