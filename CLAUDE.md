@@ -378,9 +378,10 @@ Draft-модель: значення не губляться при переми
 - **`window.__pwInitScripts`** — Playwright створює цей об'єкт на сторінці через
   `addInitScript`. Це прямий підпис Playwright. Прибирається видаленням об'єкта в
   кінці init-скрипта (ми це робимо).
-  **Уточнення (Playwright 1.63):** об'єкт НЕ створюється взагалі, а наш геттер робить
-  `'__pwInitScripts' in window === true` (у справжнього Chrome — `false`), тобто опція
-  `stealth.pwInitScripts` зараз сама додає сигнал. Поведінку не змінено (пресети калібровані з нею).
+  **Уточнення (Playwright 1.63):** об'єкт НЕ створюється взагалі. Раніше опція ставила
+  на нього геттер, і `'__pwInitScripts' in window` ставало `true` (у Chrome — `false`) —
+  сама додавала сигнал. Виправлено: опція лише видаляє об'єкт, якщо він є.
+  ⚠️ Калібрування пресетів (Ashby, Cloudflare на rubyonremote) треба перевірити заново.
 - **`navigator.webdriver`** має бути `false` (а не `undefined` і не own-property).
   Наш спуф на прототипі — щоб `Object.getOwnPropertyNames(navigator)` був чистий.
 - Перевірка стелсу: **https://bot-detector.rebrowser.net** — ми довели 3/3 зелені

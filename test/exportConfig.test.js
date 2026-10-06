@@ -271,11 +271,11 @@ test('порядок init-скриптів описано правильно: с
   assert.equal(/ПІСЛЯ евейжнів плагіна, останнім|останнім, після евейжнів/.test(md), false);
 });
 
-test('pwInitScripts: документ не видає опцію за «прибирання підпису», перевірка через `in`', () => {
+test('pwInitScripts: опція лише видаляє об\'єкт — у документі очікувано `in window` = false (як у Chrome)', () => {
   const md = buildConfigExport(withFp(), {}).markdown;
-  assert.match(md, /Playwright 1\.63 \*\*не створює\*\*/);
-  assert.match(md, /'__pwInitScripts' in window` \(очікувано `true`\)/);
-  assert.equal(/прибрати window\.__pwInitScripts/.test(md), false);
+  assert.match(md, /'__pwInitScripts' in window` \(очікувано `false`\)/);
+  assert.match(md, /видалити window\.__pwInitScripts, якщо є/);
+  assert.equal(/не створює\*\*/.test(md), false, 'розділ про геттер-маячок прибрано — його більше немає');
   const off = buildConfigExport(applyProfilePatch(withFp(), { stealth: { pwInitScripts: false } }).profile, {}).markdown;
   assert.match(off, /'__pwInitScripts' in window` \(очікувано `false`\)/);
 });

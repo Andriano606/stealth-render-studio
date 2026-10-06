@@ -45,6 +45,15 @@ test('stealthScript у vm: window.chrome, outerWidth, __pwInitScripts', () => {
   assert.equal(window.outerWidth, 1280);
   assert.equal(window.outerHeight, 974);
   assert.equal(window.__pwInitScripts, undefined);
+  assert.equal('__pwInitScripts' in window, false, 'не лишає геттера — in має бути false, як у Chrome');
+});
+
+test('stealthScript у vm: __pwInitScripts відсутній (Playwright 1.63) → нічого не створюємо', () => {
+  class Navigator {}
+  const window = { innerWidth: 1280, innerHeight: 900 };
+  const ctx = { Navigator, navigator: new Navigator(), window, screen: {}, Notification: { permission: 'default' }, Object, Promise };
+  vm.runInNewContext(stealthScript(null, ALL), ctx);
+  assert.equal('__pwInitScripts' in window, false);
 });
 
 test('stealthScript у vm: прапорці вимкнено → нічого не чіпаємо', () => {
