@@ -760,3 +760,202 @@ test('контроль: без Stop ціль так і не зʼявилась �
   assert.ok(r.logs.some((t) => /не знайдено за 6 с — координати/.test(t)));
   assert.equal(r.dones[0].strategy, 'coord');
 });
+
+// ---------- Фрейм цілі зʼявляється пізно / не зʼявляється (вбудована форма, напр. Ashby) ----------
+
+const frmSpec = { chain: ['iframe#frm'], url: 'https://jobs.example.test/acme/*', path: 'https://jobs.example.test/acme/1/apply', name: 'embed', index: 1 };
+const inFrame = (t) => ({ ...t, frame: frmSpec });
+
+test('resolveTarget: таймаут цілі відлічується від ПОЯВИ фрейму; фрейм чекаємо до frameTimeout', async () => {
+  // фрейм вставлено через 14 с (заміряно на preply.com: 0,7–14 с), кнопка — ще через 2 с
+  const w = makeWorld([], { iframes: {} });
+  const clock = fakeClock();
+  clock.at(14000, () => { w.iframes['iframe#frm'] = { frame: 'f1' }; });
+  clock.at(16000, () => { w.els.push(btn('in', { frame: 'f1' })); });
+  const out = {};
+  const r = await resolveTarget(fakePage(w), inFrame(tgt([role('button', 'Submit')])), { clock, timeout: 6000, frameTimeout: 30000, out });
+  assert.ok(r, 'знайдено після пізньої появи фрейму');
+  assert.equal(r.strategy, 'loc');
+  assert.ok(r.frameMs >= 14000 && r.frameMs <= 14300, String(r.frameMs));
+  assert.ok(r.ms >= 16000 && r.ms <= 16300, String(r.ms));
+  assert.deepEqual(out, {});
+});
+
+test('resolveTarget: без frameTimeout — як раніше (усе в межах timeout); out пояснює причину null', async () => {
+  const w = makeWorld([], { iframes: {} });
+  const clock = fakeClock();
+  clock.at(9000, () => { w.iframes['iframe#frm'] = { frame: 'f1' }; w.els.push(btn('in', { frame: 'f1' })); });
+  const out = {};
+  assert.equal(await resolveTarget(fakePage(w), inFrame(tgt([role('button', 'Submit')])), { clock, timeout: 6000, out }), null);
+  assert.equal(out.frameMissing, true);
+  assert.ok(out.waitedMs >= 6000 && out.waitedMs < 6300, String(out.waitedMs));
+  // фрейм є, а цілі в ньому немає → frameMissing:false, чекали лише timeout (від появи фрейму)
+  const w2 = makeWorld([], { iframes: { 'iframe#frm': { frame: 'f1' } } });
+  const out2 = {};
+  assert.equal(await resolveTarget(fakePage(w2), inFrame(tgt([role('button', 'Submit')])), { clock: fakeClock(), timeout: 6000, frameTimeout: 30000, out: out2 }), null);
+  assert.equal(out2.frameMissing, false);
+  assert.ok(out2.waitedMs >= 6000 && out2.waitedMs < 6300, String(out2.waitedMs));
+  // фрейму так і немає → чекали frameTimeout
+  const out3 = {};
+  assert.equal(await resolveTarget(fakePage(makeWorld([], { iframes: {} })), inFrame(tgt([role('button', 'Submit')])), { clock: fakeClock(), timeout: 6000, frameTimeout: 30000, out: out3 }), null);
+  assert.equal(out3.frameMissing, true);
+  assert.ok(out3.waitedMs >= 30000 && out3.waitedMs < 30300, String(out3.waitedMs));
+});
+
+test('прогін: iframe форми зʼявився через 9 с → перший крок знайдено локатором (а не 📍 у порожнечу) + лог ⏳', async () => {
+  const w = makeWorld([], { iframes: {} });
+  const clock = fakeClock();
+  clock.at(9000, () => { w.iframes['iframe#frm'] = { frame: 'f1' }; w.els.push(btn('tab', { frame: 'f1' })); });
+  const step = { v: 2, type: 'click', target: inFrame(tgt([role('button', 'Submit')])), x: 697, y: 146, sw: 1280 };
+  const { dones, logs } = await run([step], w, { clock });
+  assert.equal(dones[0].ok, true);
+  assert.equal(dones[0].strategy, 'loc');
+  assert.deepEqual(w.clicks.map((c) => c.id), ['tab']);
+  assert.equal((w.downs || []).length, 0, 'жодного координатного кліку');
+  assert.ok(logs.some((t) => /⏳ Фрейм «jobs\.example\.test\/acme\/\*» зʼявився через 9 с/.test(t)), logs.join('\n'));
+});
+
+test('прогін: фрейм так і не зʼявився → збій кроку з причиною, без координатного кліку/друку; далі в тому ж фреймі — лише таймаут кроку', async () => {
+  const w = makeWorld([], { iframes: {} });
+  w.coordEls = [{ id: 'host-link', x: 0, y: 0, w: 2000, h: 3000 }]; // під координатами — щось на хост-сторінці
+  const clock = fakeClock();
+  const steps = [
+    { v: 2, type: 'click', target: inFrame(tgt([role('button', 'Submit')])), x: 300, y: 300, sw: 1280 },
+    { v: 2, type: 'click', target: inFrame(inTgt('Email')), x: 300, y: 500, sw: 1280 },
+    { v: 2, type: 'text', text: 'a@b.c', target: inFrame(inTgt('Email')), x: 300, y: 500, sw: 1280 },
+  ];
+  const { dones } = await run(steps, w, { clock });
+  assert.deepEqual(dones.map((d) => d.ok), [false, false, false]);
+  assert.match(dones[0].error, /фрейм «jobs\.example\.test\/acme\/\*» не зʼявився \(або зник\) за 30 с/);
+  assert.match(dones[1].error, /не зʼявився \(або зник\) за 6 с/); // памʼять «фрейму немає» — не 30 с на кожен крок
+  assert.equal((w.downs || []).length, 0);
+  assert.equal((w.typed || []).length, 0);
+  assert.ok(clock.now() < 30000 + 6000 * 2 + 3000, String(clock.now()));
+});
+
+test('прогін: фрейм зʼявився пізніше, ніж збій попереднього кроку → повний бюджет фрейму повертається', async () => {
+  const w = makeWorld([], { iframes: {} });
+  const clock = fakeClock();
+  clock.at(33000, () => { w.iframes['iframe#frm'] = { frame: 'f1' }; w.els.push(btn('b', { frame: 'f1' })); });
+  const s = { v: 2, type: 'click', target: inFrame(tgt([role('button', 'Submit')])) };
+  const { dones } = await run([s, s, s], w, { clock });
+  // 1) 30 с — фрейму немає; 2) лише 6 с (памʼять) — фрейм зʼявився на 33-й с → знайдено; 3) знайдено одразу
+  assert.deepEqual(dones.map((d) => d.ok), [false, true, true]);
+});
+
+test('клік v2: локатор не знайдено, під координатами порожнеча → збій БЕЗ кліку; legacy і «📍 лише координати» — клікають як раніше', async () => {
+  const w = makeWorld([]);
+  const v2 = await run([{ v: 2, type: 'click', target: tgt([role('button', 'Submit')]), x: 300, y: 300, sw: 1280, timeout: 500 }], w);
+  assert.equal(v2.dones[0].ok, false);
+  assert.match(v2.dones[0].error, /кнопка «Submit» не знайдено, а під записаними координатами порожньо/);
+  assert.equal((w.downs || []).length, 0);
+  const w2 = makeWorld([]);
+  const legacy = await run([{ type: 'click', x: 300, y: 300, sw: 1280 }], w2);
+  assert.equal(legacy.dones[0].ok, true);
+  assert.equal(w2.downs.length, 1);
+  const w3 = makeWorld([]);
+  const coordsOnly = await run([{ v: 2, type: 'click', target: tgt([role('button', 'Submit')], { pick: -1 }), x: 300, y: 300, sw: 1280 }], w3);
+  assert.equal(coordsOnly.dones[0].ok, true);
+  assert.equal(w3.downs.length, 1);
+});
+
+test('текст після запасного 📍-кліку по тому ж полю: шукає поле сам; не дав фокусу полю → збій без друку', async () => {
+  const mk = () => { const w = makeWorld([]); w.coordEls = [{ id: 'c', x: 0, y: 0, w: 400, h: 400 }]; return w; };
+  const steps = [
+    { v: 2, type: 'click', target: inTgt('Email'), x: 50, y: 50, timeout: 500 },
+    { v: 2, type: 'text', text: 'hi', target: inTgt('Email'), x: 50, y: 50, timeout: 500 },
+  ];
+  // фокус не в полі → текст не друкується
+  const w = mk();
+  const r = await run(steps, w, { dom: { ...fakeDom(w), async focusIsEditable() { return false; } } });
+  assert.deepEqual(r.dones.map((d) => [d.ok, d.strategy]), [[true, 'coord'], [false, 'coord']]);
+  assert.match(r.dones[1].error, /не дав фокусу полю — текст не надруковано/);
+  assert.equal((w.typed || []).length, 0);
+  // фокус у полі → друкує (повторний координатний фокус-клік)
+  const w2 = mk();
+  const r2 = await run(steps, w2);
+  assert.deepEqual(r2.dones.map((d) => d.ok), [true, true]);
+  assert.deepEqual(w2.typed, ['hi']);
+  assert.equal(w2.downs.length, 2);
+  // поле зʼявилось між кроками → текстовий крок знаходить його локатором
+  const w3 = mk();
+  const clock = fakeClock();
+  clock.at(600, () => { w3.els.push(input('email', 'Email')); });
+  const r3 = await run(steps, w3, { clock });
+  assert.deepEqual(r3.dones.map((d) => d.strategy), ['coord', 'loc']);
+  assert.deepEqual(w3.clicks.map((c) => c.id), ['email']);
+  assert.deepEqual(w3.typed, ['hi']);
+});
+
+test('resolveTarget: фрейм зʼявився і зник → frameMissing (без координат у хост-сторінку); повернувся → знайдено', async () => {
+  const w = makeWorld([btn('in', { frame: 'f1' })], { iframes: { 'iframe#frm': { frame: 'f1', gone: true } } });
+  w.els[0].gone = true;
+  const clock = fakeClock();
+  clock.at(500, () => { w.iframes['iframe#frm'].gone = false; });
+  clock.at(700, () => { w.iframes['iframe#frm'].gone = true; });
+  const out = {};
+  assert.equal(await resolveTarget(fakePage(w), inFrame(tgt([role('button', 'Submit')])), { clock, timeout: 6000, frameTimeout: 30000, out }), null);
+  assert.equal(out.frameMissing, true);
+  assert.ok(out.waitedMs >= 30000, String(out.waitedMs)); // бюджет фрейму відновився після зникнення
+  const clock2 = fakeClock();
+  const w2 = makeWorld([btn('in', { frame: 'f1' })], { iframes: { 'iframe#frm': { frame: 'f1' } } });
+  clock2.at(300, () => { w2.iframes['iframe#frm'].gone = true; });
+  clock2.at(12000, () => { w2.iframes['iframe#frm'].gone = false; });
+  w2.els[0].gone = true;
+  clock2.at(12500, () => { w2.els[0].gone = false; });
+  const r = await resolveTarget(fakePage(w2), inFrame(tgt([role('button', 'Submit')])), { clock: clock2, timeout: 6000, frameTimeout: 30000 });
+  assert.ok(r && r.frameMs >= 12000, JSON.stringify(r && r.frameMs));
+});
+
+test('клік у пізньому фреймі: таймаут самого кліку — від появи фрейму, а не залишок від старту кроку', async () => {
+  const w = makeWorld([], { iframes: {} });
+  const clock = fakeClock();
+  clock.at(14000, () => { w.iframes['iframe#frm'] = { frame: 'f1' }; w.els.push(btn('tab', { frame: 'f1' })); });
+  const { dones } = await run([{ v: 2, type: 'click', target: inFrame(tgt([role('button', 'Submit')])) }], w, { clock });
+  assert.equal(dones[0].strategy, 'loc');
+  assert.ok(w.clicks[0].timeout > 5000, String(w.clicks[0].timeout));
+});
+
+test('клік після друку в ІНШЕ поле: mousedown → чекаємо збереження поля (blur-запит) → mouseup; у те саме поле — звичайний клік', async () => {
+  const w = makeWorld([input('li', 'Linkedin'), btn('yes', { name: 'Yes', text: 'Yes' })]);
+  const clock = fakeClock();
+  const page = fakePage(w);
+  const t = { down: null, up: null, saved: null };
+  const blurReq = { method: () => 'POST', resourceType: () => 'fetch' };
+  const down0 = page.mouse.down, up0 = page.mouse.up;
+  page.mouse.down = async () => {
+    t.down = clock.now(); await down0();
+    page.emit('request', blurReq); // blur поля → сайт зберігає його
+    clock.at(600, () => { t.saved = clock.now(); page.emit('requestfinished', blurReq); });
+  };
+  page.mouse.up = async () => { t.up = clock.now(); await up0(); };
+  const { dones } = await run([
+    { v: 2, type: 'click', target: inTgt('Linkedin') },
+    { v: 2, type: 'text', text: 'asd', target: inTgt('Linkedin') },
+    { v: 2, type: 'click', target: tgt([role('button', 'Yes')]) },
+  ], w, { page, clock });
+  assert.deepEqual(dones.map((d) => d.ok), [true, true, true]);
+  assert.deepEqual(w.clicks.map((c) => c.id + (c.trial ? ':trial' : '')), ['li', 'yes:trial']); // поле — звичайний click; «Yes» — down/up
+  assert.ok(t.up > t.saved && t.saved > t.down, JSON.stringify(t));
+});
+
+test('resolveScope: <iframe> є, але документ ще about:blank / без domcontentloaded → фрейму «ще немає»', async () => {
+  const { frameReady } = await import('../lib/replay.js');
+  const w = makeWorld([btn('in', { frame: 'f1' })], { iframes: { 'iframe#frm': { frame: 'f1' } } });
+  const page = fakePage(w);
+  let child = { url: () => 'about:blank', async waitForLoadState() {} };
+  const main = page.mainFrame();
+  main.locator = () => ({ async elementHandle() { return { async contentFrame() { return child; }, async dispose() {} }; } });
+  assert.equal(await resolveScope(page, frmSpec), null);
+  child = { url: () => 'https://jobs.example.test/acme/1', async waitForLoadState() { throw new Error('Timeout 50ms'); } };
+  assert.equal(await resolveScope(page, frmSpec), null);
+  child = { url: () => 'https://jobs.example.test/acme/1', async waitForLoadState() {} };
+  assert.ok(await resolveScope(page, frmSpec));
+  assert.equal(await frameReady({ url: () => 'https://x.test/', isDetached: () => true }), false);
+  // клік: таймаут цілі (6 с) рахується від ГОТОВНОСТІ документа, а не від появи <iframe>
+  const clock = fakeClock();
+  child = { url: () => 'about:blank', async waitForLoadState() {} };
+  clock.at(9000, () => { child = { url: () => 'https://jobs.example.test/acme/1', async waitForLoadState() {} }; });
+  const r = await resolveTarget(page, inFrame(tgt([role('button', 'Submit')])), { clock, timeout: 6000, frameTimeout: 30000 });
+  assert.ok(r && r.frameMs >= 9000, JSON.stringify(r && r.frameMs));
+});
