@@ -45,3 +45,12 @@ test('humanError: Camoufox не завантажено → підказка npm 
   assert.match(humanError(m), /^Camoufox не встановлено — виконай `npm run fetch-camoufox`/);
   assert.match(humanError(new Error(m)), /fetch-camoufox/);
 });
+
+test('humanError: помилки проксі (Chromium net::ERR_PROXY_* / тунель, Firefox NS_ERROR_*PROXY*)', () => {
+  assert.equal(humanError('page.goto: net::ERR_PROXY_CONNECTION_FAILED at https://x.test/'), 'Проксі недоступний або відхилив зʼєднання (ERR_PROXY_CONNECTION_FAILED) — https://x.test/');
+  assert.match(humanError('net::ERR_TUNNEL_CONNECTION_FAILED at https://x.test/'), /^Проксі недоступний/);
+  assert.match(humanError('page.goto: NS_ERROR_PROXY_CONNECTION_REFUSED'), /^Проксі недоступний .*\(NS_ERROR_PROXY_CONNECTION_REFUSED\)/);
+  assert.match(humanError('NS_ERROR_UNKNOWN_PROXY_HOST'), /^Проксі недоступний/);
+  assert.match(humanError('page.goto: NS_ERROR_UNKNOWN_HOST at https://nope.test/'), /^Домен не знайдено \(NS_ERROR_UNKNOWN_HOST\) — https:\/\/nope\.test\//);
+  assert.match(humanError('net::ERR_CONNECTION_FAILED at https://x.test/'), /^Сторінка недоступна/, 'звичайний CONNECTION_FAILED — не проксі');
+});

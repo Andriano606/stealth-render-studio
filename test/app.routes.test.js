@@ -482,3 +482,43 @@ test('JSON-тіло понад ліміт → 413 {ok:false}', async () => {
   assert.equal(r.status, 413);
   assert.equal((await r.json()).ok, false);
 });
+
+test('POST /profile: проксі → relaunch; пароль у файлі, але НЕ у відповіді; без пароля в тілі — лишається; невалідний → 400', async () => {
+  engine.calls.length = 0;
+  const d = await (await fetch(base + '/profile', json('POST', { proxy: { server: 'h.test:3128', username: 'u', password: 'S3cr3t' } }))).json();
+  assert.equal(d.relaunched, true);
+  assert.deepEqual(engine.calls, ['relaunch']);
+  assert.deepEqual(d.proxy, { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true, enabled: true });
+  assert.equal(JSON.stringify(d).includes('S3cr3t'), false);
+  assert.equal(JSON.stringify(await (await fetch(base + '/profile')).json()).includes('S3cr3t'), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'profile.json'), 'utf8')).proxy.password, 'S3cr3t');
+  engine.calls.length = 0;
+  const same = await (await fetch(base + '/profile', json('POST', { proxy: { server: 'http://h.test:3128', username: 'u' } }))).json();
+  assert.equal(same.relaunched, false, 'те саме — без перезапуску');
+  assert.equal(same.proxy.hasPassword, true);
+  const bad = await fetch(base + '/profile', json('POST', { proxy: { server: 'h.test' } }));
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /Проксі: .*порт/);
+  const off = await (await fetch(base + '/profile', json('POST', { proxy: null }))).json();
+  assert.equal(off.proxy, null);
+});
+
+test('POST /profile/proxy-check: вихідний IP браузером (контекст із пулу, закривається); збій — людський текст', async () => {
+  const take0 = engine.takeUnit;
+  let closed0 = engine.closed;
+  let gotoUrl = null;
+  engine.takeUnit = async () => ({ context: {}, fromPool: true, page: { async goto(u) { gotoUrl = u; return { status: () => 200, text: async () => '{"ip":"203.0.113.7"}' }; } } });
+  try {
+    const d = await (await fetch(base + '/profile/proxy-check', json('POST', {}))).json();
+    assert.equal(d.ok, true);
+    assert.equal(d.ip, '203.0.113.7');
+    assert.match(d.proxy, /немає/);
+    assert.match(gotoUrl, /^https:\/\/api\.ipify\.org/);
+    assert.equal(engine.closed, closed0 + 1, 'контекст закрито');
+    engine.takeUnit = async () => ({ context: {}, fromPool: true, page: { async goto() { throw new Error('page.goto: net::ERR_PROXY_CONNECTION_FAILED at https://api.ipify.org/?format=json'); } } });
+    const f = await (await fetch(base + '/profile/proxy-check', json('POST', {}))).json();
+    assert.equal(f.ok, false);
+    assert.match(f.error, /^Проксі недоступний або відхилив зʼєднання \(ERR_PROXY_CONNECTION_FAILED\)/);
+    assert.equal(sem.active, 0, 'слот семафора звільнено');
+  } finally { engine.takeUnit = take0; }
+});

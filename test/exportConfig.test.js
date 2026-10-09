@@ -239,7 +239,7 @@ test('Camoufox: client.mjs сам латає валідатор camoufox-js 0.10
   assert.match(patched, /continue; \/\* CAMOUFOX_PATCHED/);
   assert.equal(/throw new UnknownProperty/.test(patched), false);
   assert.equal(mod.patchCamoufoxJs(), 'already', 'ідемпотентно');
-  assert.match(clientOf(md), /launchOptions\(\{ \.\.\.rest, headless: !!headless \}\)/, 'як застосунок: launchOptions + firefox.launch');
+  assert.match(clientOf(md), /launchOptions\(\{ \.\.\.rest, headless: !!headless, \.\.\.\(proxy \? \{ proxy \} : \{\}\) \}\)/, 'як застосунок: launchOptions + firefox.launch');
   assert.match(clientOf(md), /npm i camoufox-js@0\.10\.2 playwright-core@1\.63\.0/);
 });
 
@@ -333,4 +333,25 @@ test('buildClient: Chromium без плагіна — без EVASIONS і без 
   const src = buildClient(spec, stealthScript(null, {}));
   assert.equal(/EVASIONS|playwright-extra/.test(src), false);
   assert.match(src, /await import\('playwright'\)/);
+});
+
+test('Проксі в експорті: сервер/логін є, ПАРОЛЯ немає; client.mjs бере пароль з env PROXY_PASSWORD', () => {
+  for (const engineName of ['chromium', 'camoufox']) {
+    const prof = applyProfilePatch(defaultProfile(), { launch: { engine: engineName }, proxy: { server: 'h.test:3128', username: 'u', password: 'S3cr3t-pw' } }).profile;
+    const out = buildConfigExport(prof, {});
+    assert.equal(out.markdown.includes('S3cr3t-pw'), false, engineName + ': пароль не потрапив у документ');
+    assert.deepEqual(out.spec.proxy, { server: 'http://h.test:3128', username: 'u', bypass: null, password: 'env PROXY_PASSWORD' });
+    assert.match(out.markdown, /\| Проксі \| `http:\/\/h\.test:3128` \(логін `u`, пароль — env `PROXY_PASSWORD`\)/);
+    const client = clientOf(out.markdown);
+    assert.match(client, /const PROXY_SPEC = \{/);
+    assert.match(client, /process\.env\.PROXY_PASSWORD/);
+  }
+  assert.equal(buildSpec(defaultProfile(), {}).proxy, null);
+  assert.match(buildConfigExport(defaultProfile(), {}).markdown, /\| Проксі \| — немає/);
+});
+
+test('Проксі в експорті: вимкнений перемикачем — як пряме зʼєднання (null)', () => {
+  const prof = applyProfilePatch(defaultProfile(), { proxy: { server: 'h.test:3128', enabled: false } }).profile;
+  assert.equal(buildSpec(prof, {}).proxy, null);
+  assert.match(buildConfigExport(prof, {}).markdown, /\| Проксі \| — немає/);
 });

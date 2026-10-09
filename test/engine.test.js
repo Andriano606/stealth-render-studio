@@ -338,3 +338,32 @@ test('engine: drainPool без браузера і зі збоєм запуск�
   assert.equal(e.engineReady(), false);
   await e.whenPoolReady();
 });
+
+test('launchFlags / camoufoxOptions: проксі → опція Playwright proxy (без проксі — немає ключа)', () => {
+  const px = { server: 'http://h.test:3128', username: 'u', password: 'p', bypass: 'localhost' };
+  assert.deepEqual(launchFlags({ headless: true, newHeadless: true }, px).proxy, px);
+  assert.equal('proxy' in launchFlags({ headless: true }), false);
+  assert.deepEqual(camoufoxOptions({}, px).proxy, px);
+  assert.equal('proxy' in camoufoxOptions({}), false);
+});
+
+test('engine: проксі з профілю йде в запуск обох рушіїв', async () => {
+  const w = fakeWorld();
+  let profile = applyProfilePatch(defaultProfile(), { proxy: 'http://u:p@h.test:3128' }).profile;
+  const e = createEngine({ getProfile: () => profile, launchers: w.launchers, poolSize: 1, log: quiet });
+  await e.ensureEngine();
+  assert.deepEqual(w.browsers[0].opts.proxy, { server: 'http://h.test:3128', username: 'u', password: 'p' });
+  profile = applyProfilePatch(profile, { launch: { engine: 'camoufox' } }).profile;
+  await e.relaunchBrowser();
+  assert.equal(w.browsers[1].kind, 'camoufox');
+  assert.deepEqual(w.browsers[1].opts.proxy, { server: 'http://h.test:3128', username: 'u', password: 'p' });
+});
+
+test('engine: вимкнений перемикачем проксі не йде в запуск (налаштування в профілі лишаються)', async () => {
+  const w = fakeWorld();
+  const profile = applyProfilePatch(defaultProfile(), { proxy: { server: 'http://u:p@h.test:3128', enabled: false } }).profile;
+  assert.equal(profile.proxy.server, 'http://h.test:3128');
+  const e = createEngine({ getProfile: () => profile, launchers: w.launchers, poolSize: 1, log: quiet });
+  await e.ensureEngine();
+  assert.equal('proxy' in w.browsers[0].opts, false);
+});

@@ -59,7 +59,7 @@ npm start                   # http://localhost:3000
   лічильники локаторів), `live` (живі сесії запису).
 - **Спільні ізоморфні модулі** (без Node-імпортів, роздаються браузеру як ES-модулі
   через білий список `GET /lib/<name>.js`, `SHARED_LIBS` у `lib/app.js`): `steps`, `coords`,
-  `locators`, `textTemplate`, `errText` (чищення помилок Playwright: ANSI, «Call log», net::ERR_* →
+  `locators`, `textTemplate`, `proxy` (валідація/підпис проксі), `errText` (чищення помилок Playwright: ANSI, «Call log», net::ERR_* →
   українською; тим самим модулем чистить і сервер — `errorHandler`, `/live`, `/replay`), `transfer`
   (бандл експорту/імпорту пресетів і сценаріїв, план конфліктів назв — див. «📦 Експорт / імпорт»).
 - **routes/*.js** — HTTP-роути (render, replay, pages, recordings, presets, upload,
@@ -279,8 +279,46 @@ Shift+Esc виходить і з кадру, і з IME-поля; фокус у �
   браузера UI НЕ спрацьовує в автоматизованому браузері (`navigator.webdriver` / Headless UA —
   `isAutomatedBrowser` у `public/js/config.js`), щоб тести/headless не записали свій відбиток.
 - **🍪 Cookies** — лічильник + очищення.
+- **🔀 Проксі** (`profile.proxy`, див. нижче) — сервер, логін, пароль, bypass + «Перевірити вихідний IP».
 
 Draft-модель: значення не губляться при перемиканні категорій; «Зберегти» застосовує.
+
+### 🔀 Проксі
+Увесь трафік браузера (рендер, прогони, живий запис, Cloudflare-челендж) — через проксі; обидва рушії.
+- **Перемикач** (Apple-тумблер «Увімкнути проксі», `role="switch"`, хелпер `sw()` + `.ios-switch` у
+  `components.css`): `enabled:false` — налаштування (сервер/логін/пароль/bypass) лишаються в профілі, але
+  браузер іде напряму (`activeProxy` → null; лог «🔀 Проксі: вимкнено — пряме зʼєднання (налаштовано …)»;
+  експорт — як без проксі). Перемикання = перезапуск браузера; правки вимкненого проксі — ні (`sameProxy`
+  порівнює лише те, що реально йде в браузер). Відсутнє поле = увімкнено.
+- **Середовище, а не пресет:** `profile.proxy = {server, username?, password?, bypass?, enabled?}` живе ОКРЕМО від
+  launch/stealth/behavior/fingerprint, тож вибір пресета (і Clear all) його не змінює, у тіло пресета
+  (`draftBody`), 📦 бандл і `PRESET_BODY_KEYS` він не потрапляє. Пароль — лише в `profile.json`
+  (gitignored): `GET/POST /profile` віддають `publicProxy` (`hasPassword`), логи — `proxyLabel`, 📤 експорт
+  конфігу — сервер/логін, а `client.mjs` бере пароль з env `PROXY_PASSWORD` (`PROXY_SERVER`/`PROXY_USERNAME`
+  перевизначають).
+- **Валідація** (`lib/proxy.js`, спільний з UI): `host:port` → `http://`, схеми http/https/socks4/socks5, порт
+  обовʼязковий, `схема://логін:пароль@host:port` розбирається (percent-decoding). `POST /profile {proxy}`:
+  `undefined` — без змін; `null`/порожній сервер — прибрати; пароль не надіслано → лишається збережений (той
+  самий логін); невалідний → 400 «Проксі: …»; SOCKS з логіном → `proxyWarning` (Chromium не вміє).
+- **Зміна = перезапуск браузера** (`launchChanged` через `sameProxy`). Chromium — `launchFlags(L, proxy).proxy`;
+  Camoufox — `camoufoxOptions(L, proxy)` → `launchOptions({proxy})` (з geoip IP і timezone/locale/WebRTC —
+  ЧЕРЕЗ проксі), але в `firefox.launch` іде наш обʼєкт: camoufox-js будує proxy через `URL` (socks5 →
+  origin `'null'`, логін/пароль percent-кодуються).
+- **Лог** кожного контексту: «🔀 Проксі: http://host:port (логін u, з паролем)» / «немає (пряме зʼєднання)».
+- **UI:** вкладка «🔀 Проксі» — поля + кнопка перевірки + розгорнутий блок «ℹ️ Як працює проксі».
+  Кнопка: проксі в чернетці змінено → «🔀 Застосувати й перевірити IP» (підпис міняється під час вводу,
+  `proxyCheckLabel`): застосовує ЛИШЕ проксі (`POST /profile {proxy}`, перезапуск браузера з підтвердженням,
+  якщо йде прогін/запис), решта незастосованих змін лишається в чернетці (`draftAfterProxyApply`), далі
+  `/profile/proxy-check`; без змін — просто «🔀 Перевірити вихідний IP». Блок пояснень
+  (`PROXY_HELP` у `public/js/config.js`: без логіна — просто IP:порт; не в пресетах; пароль; формати;
+  перезапуск і рядок у лозі; Camoufox geoip; SOCKS з паролем). `proxyWarning` — у лозі й тостом.
+- **`POST /profile/proxy-check`** — вихідний IP браузером через ЗАСТОСОВАНИЙ проксі (контекст із пулу,
+  `https://api.ipify.org?format=json`, 20 с, слот семафора) → `{ok, ip, ms, proxy, engine}` або `{ok:false,
+  error}` людською мовою (`humanError`: `ERR_PROXY_*`/`TUNNEL_*`/`NS_ERROR_*PROXY*`; 407 у Chromium =
+  `ERR_HTTP_RESPONSE_CODE_FAILURE` → «перевір логін/пароль»).
+- Перевірено 2026-10-09 локальним CONNECT-проксі з Basic-auth: Chromium і Camoufox (з geoip і без),
+  правильний пароль зі `@`/`:` → IP, неправильний → людська помилка. Тести: `test/proxy.test.js` + профіль,
+  рушій, логи, errText, експорт, UI (`frontend.test.js`), роути (`app.routes.test.js`).
 
 ### 📤 Експорт конфігу (для Claude / власного клієнта)
 Кнопка **📤 Експорт** у футері конфігуратора → `GET /profile/export` (`?preset=&status=`;
@@ -698,6 +736,7 @@ lib/capture.js             # hitTest, DESCRIBE_FN, ланцюг iframe, лічи
 lib/live.js                # живі сесії запису: відкриття+префікс, дії, знімки
 lib/steps.js, lib/locators.js, lib/textTemplate.js # спільні (ізоморфні) модулі кроків/локаторів
 lib/errText.js             # спільний (ізоморфний): чищення помилок Playwright для людини
+lib/proxy.js               # спільний (ізоморфний): проксі — валідація, опція Playwright, підпис без пароля
 lib/transfer.js            # спільний (ізоморфний): бандл експорту/імпорту, parseBundle, planImport, uniqueName
 routes/transfer.js         # GET /export, POST /import (пресети + сценарії + файли кроків)
 lib/db.js, lib/uploads.js  # Postgres-репозиторії; завантаження файлів

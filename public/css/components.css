@@ -463,13 +463,42 @@ dialog.cfg-modal[open] { display: flex; flex-direction: column; }
 .cfg-row.chk { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .cfg-row.chk > label { display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1 1 100%; min-height: var(--touch); color: var(--text-2); }
 .cfg-row.chk input[type=checkbox] { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--accent); }
-.cfg-row input[type=text], .cfg-row input[type=number] {
+.cfg-row input[type=text], .cfg-row input[type=number], .cfg-row input[type=password] {
   width: 100%; min-width: 0; padding: 8px 10px; min-height: var(--touch); background: var(--bg);
   border: 1px solid var(--border-strong); border-radius: 7px; color: var(--text); font-size: 16px;
 }
 .cfg-row input:focus { border-color: var(--accent); }
 .cfg-row .def, .def { font-size: 11.5px; color: var(--text-faint); line-height: 1.45; }
 .cfg-row.chk .def { padding-left: 30px; flex: 1 1 100%; }
+/* Тумблер у стилі Apple (iOS switch): checkbox role="switch", текст ліворуч, перемикач праворуч. */
+.cfg-row.sw > label { justify-content: space-between; color: var(--text); font-weight: 500; }
+.cfg-row.chk.sw .def { padding-left: 0; }
+.cfg-row.chk input.ios-switch {
+  appearance: none; -webkit-appearance: none; margin: 0; flex-shrink: 0; cursor: pointer;
+  position: relative; width: 36px; height: 22px; border-radius: 999px;
+  background: #3a3a3f; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  transition: background-color .25s ease;
+}
+.cfg-row.chk input.ios-switch::before {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 2px 5px rgba(0, 0, 0, .3), 0 1px 1px rgba(0, 0, 0, .16);
+  transition: transform .25s cubic-bezier(.4, .2, .2, 1);
+}
+.cfg-row.chk input.ios-switch:checked { background: #34c759; box-shadow: none; }
+.cfg-row.chk input.ios-switch:checked::before { transform: translateX(14px); }
+.cfg-row.chk input.ios-switch:active::before { width: 22px; }
+.cfg-row.chk input.ios-switch:checked:active::before { transform: translateX(10px); }
+.cfg-row.chk input.ios-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* «ℹ️ Як працює …» — розгортний блок пояснень у категорії конфігуратора (проксі). */
+.cfg-help { margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); font-size: 12.5px; color: var(--text-2); }
+.cfg-help > summary { cursor: pointer; padding: 8px 12px; min-height: var(--touch); display: flex; align-items: center; color: var(--text); }
+.cfg-help > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cfg-help ul { margin: 0; padding: 0 14px 10px 30px; line-height: 1.5; }
+.cfg-help li + li { margin-top: 5px; }
+.cfg-help b { color: var(--text); font-weight: 600; }
+/* Поле з довгою підказкою: підказка — окремим рядком під полем (проксі). */
+.cfg-row.stack { flex-wrap: wrap; }
 .cfg-badge { font-size: 11px; color: var(--ok-2); font-weight: 400; }
 .cfg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 
@@ -520,8 +549,10 @@ dialog.cfg-modal { position: fixed; }
   .cfg-main { padding: 18px 20px; }
   .cfg-row { flex-direction: row; align-items: center; gap: 10px; margin-bottom: 9px; }
   .cfg-row > label { width: 180px; flex-shrink: 0; }
-  .cfg-row input[type=text], .cfg-row input[type=number] { font-size: 13px; min-height: 36px; }
+  .cfg-row input[type=text], .cfg-row input[type=number], .cfg-row input[type=password] { font-size: 13px; min-height: 36px; }
   .cfg-row .def { flex: 1; }
+  .cfg-row.stack > input { flex: 1; }
+  .cfg-row.stack > .def { flex: 1 1 100%; padding-left: 190px; }
   .cfg-row.chk { flex-direction: column; align-items: stretch; gap: 0; margin-bottom: 12px; }
   .cfg-row.chk > label { width: auto; min-height: 30px; }
   .cfg-row.chk .def { padding-left: 30px; flex: none; }

@@ -119,6 +119,8 @@ export function createApi(fetchImpl = (...a) => globalThis.fetch(...a)) {
     getProfile: () => json('/profile'),
     // Перезапуск браузера на холодному диску може бути довгим — даємо 3 хв.
     postProfile: (patch) => json('/profile', { method: 'POST', body: patch, timeoutMs: 180000 }),
+    // Вихідний IP браузера через застосований проксі (контекст із пулу + api.ipify.org).
+    checkProxy: () => json('/profile/proxy-check', { method: 'POST', body: {}, timeoutMs: 60000 }),
     getPresets: () => json('/presets'),
     createPreset: (name, body) => json('/presets', { method: 'POST', body: { name, body } }),
     updatePreset: (id, body) => json('/presets/' + encodeURIComponent(id), { method: 'PUT', body: { body } }),

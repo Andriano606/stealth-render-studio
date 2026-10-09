@@ -67,3 +67,19 @@ test('лог поведінки: humanize / autoScroll перед відтвор
   const p2 = applyProfilePatch(defaultProfile(), { behavior: { fastPrefix: true }, launch: { engine: 'camoufox' } }).profile;
   assert.match(texts(describeContextLogs(p2, {})), /швидкий префікс/);
 });
+
+test('describeContextLogs: рядок проксі для обох рушіїв, без пароля', () => {
+  const withPx = applyProfilePatch(defaultProfile(), { proxy: { server: 'h.test:3128', username: 'u', password: 'secret' } }).profile;
+  for (const p of [withPx, applyProfilePatch(withPx, { launch: { engine: 'camoufox' } }).profile]) {
+    const line = describeContextLogs(p, {}).find((l) => /Проксі/.test(l.text));
+    assert.ok(line, 'є рядок проксі');
+    assert.match(line.text, /🔀 Проксі: http:\/\/h\.test:3128 \(логін u, з паролем\)/);
+    assert.equal(line.text.includes('secret'), false);
+  }
+  assert.match(describeContextLogs(defaultProfile(), {}).find((l) => /Проксі/.test(l.text)).text, /немає \(пряме зʼєднання\)/);
+});
+
+test('describeContextLogs: вимкнений перемикачем проксі', () => {
+  const p = applyProfilePatch(defaultProfile(), { proxy: { server: 'h.test:3128', enabled: false } }).profile;
+  assert.match(describeContextLogs(p, {}).find((l) => /Проксі/.test(l.text)).text, /🔀 Проксі: вимкнено — пряме зʼєднання/);
+});

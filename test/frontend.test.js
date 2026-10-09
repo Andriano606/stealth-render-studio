@@ -14,7 +14,7 @@ import { createRunPlan as prepareRun, applyRunEvent, finishRun } from '../public
 import {
   configSig, subsetEq, presetMatches, makeDraft, setPath, draftBody, captureFingerprint,
   shouldAutoCapture, presetBlocksAutoFp, isAutomatedBrowser, chipInfo, engineName, stableJson, sameValue, configStatus,
-  busyLabel, presetNameError, exportUrl, refocusId,
+  busyLabel, presetNameError, exportUrl, refocusId, proxyPatch, profileBody, proxyError, needsRelaunch, changedCats, PROXY_HELP, proxyCheckLabel, draftAfterProxyApply,
 } from '../public/js/config.js';
 import { validateFields } from '../public/js/dialogs.js';
 import { pushScreen } from '../public/js/viewer.js';
@@ -457,4 +457,75 @@ test('config refocusId: після перерендеру пресетів (ім
   assert.equal(refocusId({ id: '' }, { contains: () => true }), null);
   assert.equal(refocusId(null, root), null);
   assert.equal(refocusId(inside, null), null);
+});
+
+test('конфігуратор, проксі: makeDraft без пароля; proxyPatch (без змін / новий / пароль / прибрати); у пресет не йде', () => {
+  const applied = makeDraft({ launch: { engine: 'chromium' }, proxy: { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true } });
+  assert.deepEqual(applied.proxy, { server: 'http://h.test:3128', username: 'u', bypass: '', password: '', hasPassword: true, enabled: true });
+  const d = makeDraft({ launch: { engine: 'chromium' }, proxy: { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true } });
+  assert.equal(proxyPatch(d.proxy, applied.proxy), undefined, 'без змін');
+  d.proxy.password = 'new';
+  assert.deepEqual(proxyPatch(d.proxy, applied.proxy), { server: 'http://h.test:3128', username: 'u', bypass: '', enabled: true, password: 'new' });
+  d.proxy.password = ''; d.proxy.server = 'other.test:8080';
+  assert.deepEqual(proxyPatch(d.proxy, applied.proxy), { server: 'other.test:8080', username: 'u', bypass: '', enabled: true }, 'пароль не шлемо — сервер лишає збережений');
+  d.proxy.server = '';
+  assert.equal(proxyPatch(d.proxy, applied.proxy), null, 'очистили сервер — прибрати проксі');
+  assert.equal(proxyPatch(makeDraft({}).proxy, makeDraft({}).proxy), undefined);
+  // тіло POST /profile — з проксі; тіло пресета (draftBody) — ніколи
+  d.proxy.server = 'other.test:8080';
+  assert.deepEqual(profileBody(d, applied).proxy, { server: 'other.test:8080', username: 'u', bypass: '', enabled: true });
+  assert.equal('proxy' in draftBody(d), false);
+  assert.equal('proxy' in profileBody(makeDraft({}), makeDraft({})), false);
+});
+
+test('конфігуратор, проксі: зміна → перезапуск і «●» на вкладці; валідація як на сервері', () => {
+  const applied = makeDraft({ launch: { engine: 'chromium' } });
+  const d = makeDraft({ launch: { engine: 'chromium' } });
+  d.proxy.server = 'h.test:3128';
+  assert.equal(needsRelaunch(profileBody(d, applied), { launch: applied.launch }), true);
+  assert.equal(needsRelaunch(profileBody(applied, applied), { launch: applied.launch }), false);
+  assert.ok(changedCats(d, applied).has('proxy'));
+  assert.equal(changedCats(applied, applied).has('proxy'), false);
+  assert.equal(proxyError({ server: 'h.test:3128' }), null);
+  assert.match(proxyError({ server: 'h.test' }), /порт/);
+  assert.equal(proxyError(null), null);
+  assert.equal(proxyError(undefined), null);
+});
+
+test('конфігуратор, проксі: пояснення «Як працює» покривають ключові пункти; IP без логіна валідний', () => {
+  const text = PROXY_HELP.map(([t, d]) => t + ': ' + d).join('\n');
+  for (const re of [/IP:порт/, /пресет/, /Clear all/, /PROXY_PASSWORD/, /profile\.json/, /socks5:\/\//, /перезапускає браузер/, /🔀 Проксі/, /geoip/, /SOCKS із логіном/]) assert.match(text, re);
+  assert.equal(proxyError({ server: '203.0.113.5:8080', username: '', bypass: '' }), null);
+  assert.match(proxyError({ server: '203.0.113.5' }), /порт/);
+});
+
+test('конфігуратор, «🔀 Перевірити»: змінений проксі → «Застосувати й перевірити»; після застосування решта чернетки лишається', () => {
+  const applied = makeDraft({ launch: { engine: 'chromium' } });
+  const d = makeDraft({ launch: { engine: 'chromium' } });
+  assert.equal(proxyCheckLabel(proxyPatch(d.proxy, applied.proxy)), '🔀 Перевірити вихідний IP');
+  d.proxy.server = '203.0.113.5:8080';
+  assert.equal(proxyCheckLabel(proxyPatch(d.proxy, applied.proxy)), '🔀 Застосувати й перевірити IP');
+  d.behavior.humanize = true; // інша незастосована зміна
+  const after = makeDraft({ launch: { engine: 'chromium' }, proxy: { server: 'http://203.0.113.5:8080', username: '', bypass: '', hasPassword: false } });
+  const merged = draftAfterProxyApply(d, after);
+  assert.equal(merged.behavior.humanize, true, 'незастосована зміна поведінки не загубилась');
+  assert.equal(merged.proxy.server, 'http://203.0.113.5:8080', 'проксі — як застосовано (нормалізовано)');
+  assert.equal(proxyPatch(merged.proxy, after.proxy), undefined, 'проксі більше не «змінено»');
+});
+
+test('конфігуратор, перемикач проксі: вимкнути/увімкнути без втрати налаштувань', () => {
+  const ap = { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true, enabled: true };
+  const applied = makeDraft({ launch: { engine: 'chromium' }, proxy: ap });
+  const d = makeDraft({ launch: { engine: 'chromium' }, proxy: ap });
+  assert.equal(d.proxy.enabled, true);
+  d.proxy.enabled = false;
+  assert.deepEqual(proxyPatch(d.proxy, applied.proxy), { server: 'http://h.test:3128', username: 'u', bypass: '', enabled: false }, 'вимкнено — сервер/логін лишаються, пароль не шлемо');
+  assert.equal(needsRelaunch(profileBody(d, applied), { launch: applied.launch }), true);
+  assert.ok(changedCats(d, applied).has('proxy'));
+  assert.equal(proxyCheckLabel(proxyPatch(d.proxy, applied.proxy)), '🔀 Застосувати й перевірити IP');
+  const offApplied = makeDraft({ launch: { engine: 'chromium' }, proxy: { ...ap, enabled: false } });
+  assert.equal(offApplied.proxy.enabled, false, 'вимкнений із сервера → галочка знята');
+  assert.equal(offApplied.proxy.server, 'http://h.test:3128', 'налаштування на місці');
+  assert.equal(proxyPatch(offApplied.proxy, offApplied.proxy), undefined);
+  assert.match(PROXY_HELP.map((x) => x.join(' ')).join(' '), /Перемикач/);
 });

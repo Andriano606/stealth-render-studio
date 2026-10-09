@@ -108,7 +108,7 @@ test('fullConfig: формат відповіді /profile', () => {
   assert.equal(c.cookies.length, 50);
   assert.equal(c.hasFingerprint, false);
   assert.equal(c.defaults, PLAYWRIGHT_DEFAULTS);
-  assert.deepEqual(Object.keys(c).sort(), ['behavior', 'cookies', 'cookiesCount', 'defaults', 'fingerprint', 'hasFingerprint', 'launch', 'stealth']);
+  assert.deepEqual(Object.keys(c).sort(), ['behavior', 'cookies', 'cookiesCount', 'defaults', 'fingerprint', 'hasFingerprint', 'launch', 'proxy', 'stealth']);
 });
 
 test('contextOptions: дефолти і fingerprint', () => {
@@ -145,4 +145,46 @@ test('createProfileStore: load/save через файл (атомарно), би
   fs.writeFileSync(file, '{not json');
   assert.deepEqual(createProfileStore(file, { log: quiet }).load(), defaultProfile());
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('applyProfilePatch: проксі — зміна = launchChanged; undefined — без змін; пресет (launch/clear) проксі не чіпає; невалідний → 400', () => {
+  const p0 = defaultProfile();
+  const a = applyProfilePatch(p0, { proxy: { server: 'h.test:3128', username: 'u', password: 'p' } });
+  assert.deepEqual(a.profile.proxy, { server: 'http://h.test:3128', username: 'u', password: 'p' });
+  assert.equal(a.launchChanged, true);
+  assert.equal(p0.proxy, null, 'вхідний профіль не мутується');
+  const same = applyProfilePatch(a.profile, { proxy: { server: 'http://h.test:3128', username: 'u' } });
+  assert.equal(same.profile.proxy.password, 'p', 'пароль не надіслано — лишився');
+  assert.equal(same.launchChanged, false);
+  assert.equal(applyProfilePatch(a.profile, { launch: { headless: true } }).profile.proxy.server, 'http://h.test:3128');
+  assert.equal(applyProfilePatch(a.profile, { clear: true }).profile.proxy.server, 'http://h.test:3128', 'Clear all — пресет, не середовище');
+  const off = applyProfilePatch(a.profile, { proxy: null });
+  assert.equal(off.profile.proxy, null);
+  assert.equal(off.launchChanged, true);
+  assert.throws(() => applyProfilePatch(p0, { proxy: { server: 'h.test' } }), (e) => e.status === 400 && /Проксі: .*порт/.test(e.message));
+  assert.match(applyProfilePatch(p0, { proxy: 'socks5://u:p@h.test:1080' }).proxyWarning, /SOCKS/);
+});
+
+test('mergeLoadedProfile / fullConfig / profileSig: проксі з файлу, пароль назовні не віддається', () => {
+  const p = mergeLoadedProfile({ proxy: { server: 'h.test:3128', username: 'u', password: 'secret' } });
+  assert.deepEqual(p.proxy, { server: 'http://h.test:3128', username: 'u', password: 'secret' });
+  assert.equal(mergeLoadedProfile({ proxy: { server: 'broken' } }).proxy, null, 'зіпсований — пряме зʼєднання');
+  assert.equal(mergeLoadedProfile({}).proxy, null);
+  const c = fullConfig(p);
+  assert.deepEqual(c.proxy, { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true, enabled: true });
+  assert.equal(JSON.stringify(c).includes('secret'), false);
+  assert.notEqual(profileSig(p), profileSig({ ...p, proxy: null }));
+});
+
+test('applyProfilePatch: перемикач проксі — вимкнути/увімкнути = перезапуск, налаштування й пароль лишаються; правка вимкненого — без перезапуску', () => {
+  const a = applyProfilePatch(defaultProfile(), { proxy: { server: 'h.test:3128', username: 'u', password: 'p' } }).profile;
+  const off = applyProfilePatch(a, { proxy: { server: 'http://h.test:3128', username: 'u', bypass: '', enabled: false } });
+  assert.equal(off.launchChanged, true);
+  assert.deepEqual(off.profile.proxy, { server: 'http://h.test:3128', username: 'u', password: 'p', enabled: false });
+  const edit = applyProfilePatch(off.profile, { proxy: { server: 'other.test:1', username: 'u', enabled: false } });
+  assert.equal(edit.launchChanged, false, 'вимкнений — правки не чіпають браузер');
+  const on = applyProfilePatch(edit.profile, { proxy: { server: 'other.test:1', username: 'u', enabled: true } });
+  assert.equal(on.launchChanged, true);
+  assert.deepEqual(on.profile.proxy, { server: 'http://other.test:1', username: 'u', password: 'p' });
+  assert.equal(fullConfig(off.profile).proxy.enabled, false);
 });

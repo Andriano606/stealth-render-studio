@@ -16,7 +16,10 @@
 // captureFingerprint, presetBlocksAutoFp, shouldAutoCapture, engineName, configStatus, chipInfo, changedCats,
 // needsRelaunch, footerState) експортуються для тестів.
 // Draft-модель: значення не губляться при перемиканні категорій; «Застосувати» застосовує.
+// Проксі (категорія «🔀 Проксі») — середовище, а НЕ пресет: у тіло пресета не йде (draftBody),
+// лише в POST /profile (profileBody → proxyPatch); пароль із сервера не приходить (hasPassword).
 import { $, h, clear, escapeHtml } from './dom.js';
+import { normalizeProxy } from '../../lib/proxy.js';
 import { state, on, emit, storage } from './state.js';
 import { api } from './api.js';
 import { logLine, logRunSep, setLive } from './log.js';
@@ -30,6 +33,7 @@ export const CATS = [
   { key: 'behavior', label: '🧍 Поведінка' },
   { key: 'fingerprint', label: '🧬 Fingerprint' },
   { key: 'cookies', label: '🍪 Cookies' },
+  { key: 'proxy', label: '🔀 Проксі' },
 ];
 
 // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
@@ -74,11 +78,60 @@ export function makeDraft(d) {
     fingerprint: d.fingerprint ? JSON.parse(JSON.stringify(d.fingerprint)) : null,
     cookiesCount: d.cookiesCount || 0,
     hasFingerprint: !!d.fingerprint,
+    // password у draft — лише НОВИЙ пароль, введений користувачем ('' — не змінювати).
+    proxy: { server: (d.proxy && d.proxy.server) || '', username: (d.proxy && d.proxy.username) || '',
+      bypass: (d.proxy && d.proxy.bypass) || '', password: '', hasPassword: !!(d.proxy && d.proxy.hasPassword),
+      enabled: !(d.proxy && d.proxy.enabled === false) },
   };
 }
 
-// Тіло POST /profile із draft.
+// Пояснення у вкладці «🔀 Проксі» (блок «ℹ️ Як працює проксі»): [заголовок, текст].
+export const PROXY_HELP = Object.freeze([
+  ['Перемикач', '«Увімкнути проксі» — вимкнений проксі зберігає всі налаштування (сервер, логін, пароль, bypass), але браузер іде напряму. Увімкнути назад — одна галочка, без повторного вводу.'],
+  ['Без логіна', 'достатньо IP:порт, напр. 203.0.113.5:8080 — логін і пароль не обовʼязкові (напр. проксі, що пускає за твоїм IP). Порт потрібен завжди: у кожного проксі він свій.'],
+  ['Не входить у пресети', 'вибір пресета, зокрема «Clear all», проксі не скидає; у пресети й 📦 експорт він не потрапляє.'],
+  ['Пароль ніде не показується', 'зберігається лише в profile.json (він у .gitignore) — не зʼявляється ні тут, ні в лозі, ні в 📤 експорті конфігу. Експортований client.mjs бере його зі змінної середовища PROXY_PASSWORD.'],
+  ['Формати адреси', 'host:port, http://, https://, socks4://, socks5://. Можна вставити одним рядком http://логін:пароль@host:port. Помилки — людською мовою, напр. «вкажи порт проксі».'],
+  ['Застосування', 'зміна проксі перезапускає браузер. У лозі кожного прогону — рядок «🔀 Проксі: …».'],
+  ['Camoufox', 'з увімкненим geoip (🧩 Рушій) IP визначається вже через проксі, і під нього підбираються часовий пояс, мова та WebRTC. Без geoip вони беруться з твого компʼютера — тобто суперечать IP проксі.'],
+  ['Обмеження', 'SOCKS із логіном і паролем Chromium у Playwright не підтримує — при застосуванні буде попередження; для Chromium бери HTTP-проксі.'],
+]);
+
+// Тіло пресета з draft (те, що контролюють пресети; БЕЗ проксі).
 export const draftBody = (d) => ({ launch: d.launch, stealth: d.stealth, behavior: d.behavior, fingerprint: d.fingerprint });
+
+// Зміна проксі для POST /profile: undefined — без змін; null — прибрати; обʼєкт — новий
+// (password — лише якщо введено новий; інакше сервер лишає збережений). dp/ap — draft-форма.
+const PROXY_FIELDS = ['server', 'username', 'bypass'];
+export function proxyPatch(dp, ap) {
+  const t = (o, k) => String((o && o[k]) || '').trim();
+  const server = t(dp, 'server');
+  if (!server) return t(ap, 'server') ? null : undefined;
+  const pw = dp && dp.password ? String(dp.password) : undefined;
+  const on = (o) => !(o && o.enabled === false);
+  if (pw === undefined && on(dp) === on(ap) && PROXY_FIELDS.every((k) => t(dp, k) === t(ap, k))) return undefined;
+  const body = { server, username: t(dp, 'username'), bypass: t(dp, 'bypass'), enabled: on(dp) };
+  if (pw !== undefined) body.password = pw;
+  return body;
+}
+// Тіло POST /profile: конфіг + (якщо змінено) проксі. applied — makeDraft(cfgState).
+export function profileBody(d, applied) {
+  const body = draftBody(d);
+  const px = proxyPatch(d && d.proxy, applied && applied.proxy);
+  if (px !== undefined) body.proxy = px;
+  return body;
+}
+// «🔀 Перевірити»: є незастосовані зміни проксі → кнопка спершу застосовує ЛИШЕ проксі.
+export const proxyCheckLabel = (patch) => (patch === undefined ? '🔀 Перевірити вихідний IP' : '🔀 Застосувати й перевірити IP');
+// Після застосування лише проксі: решта незастосованих змін конфігуратора лишається в чернетці.
+export const draftAfterProxyApply = (oldDraft, applied) => ({ ...oldDraft, proxy: applied.proxy });
+
+// Помилка введеного проксі (та сама валідація, що на сервері) або null.
+export function proxyError(patch) {
+  if (!patch) return null;
+  const r = normalizeProxy(patch);
+  return r.error || null;
+}
 
 export function setPath(obj, path, val) {
   const parts = path.split('.'); let o = obj;
@@ -158,6 +211,7 @@ export const CAT_PATHS = {
   behavior: ['behavior'],
   fingerprint: ['fingerprint'],
   cookies: [],
+  proxy: [], // окремо: proxyPatch
 };
 const getPath = (o, path) => path.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o);
 const ENGINE_KEYS = new Set(['engine', 'camoufoxHumanize', 'camoufoxGeoip']);
@@ -175,6 +229,7 @@ export function changedCats(draft, applied) {
       } else if (neq(getPath(draft, p), getPath(applied, p))) out.add(cat);
     }
   }
+  if (proxyPatch(draft.proxy, applied.proxy) !== undefined) out.add('proxy');
   return out;
 }
 
@@ -183,6 +238,7 @@ export function changedCats(draft, applied) {
 // body — тіло POST /profile (draft-тіло або тіло пресета), applied — поточний профіль.
 export function needsRelaunch(body, applied) {
   if (!body) return false;
+  if (body.proxy !== undefined) return true; // проксі задається при запуску браузера
   if (body.clear) {
     const d = (applied && applied.defaults) || {};
     return !subsetEq(d.launch, applied && applied.launch);
@@ -230,7 +286,9 @@ const activePreset = () => presets.find((p) => p.id === activePresetId) || null;
 const draftProf = () => (draft ? { ...draft, defaults: (cfgState && cfgState.defaults) || {} } : null);
 // draft відрізняється від активного пресета (те, що пресет контролює).
 const isDirty = () => { const p = activePreset(); return !!(p && draft && !presetMatches(p.body, draftProf())); };
-const hasUnsaved = () => !!(draft && cfgState && configSig(draft) !== configSig(makeDraft(cfgState)));
+const hasUnsaved = () => !!(draft && cfgState && (configSig(draft) !== configSig(makeDraft(cfgState))
+  || proxyPatch(draft.proxy, makeDraft(cfgState).proxy) !== undefined));
+const curProfileBody = () => profileBody(draft, cfgState ? makeDraft(cfgState) : null);
 const liveSessions = () => (state.health && state.health.sessions) || 0;
 
 export function initConfig() {
@@ -510,7 +568,7 @@ function renderFooter() {
   const ap = activePreset();
   const f = footerState({ unsaved: hasUnsaved(), dirty: isDirty(), activeName: ap ? ap.name : null, presetsDb });
   let hint = f.hint;
-  if (draft && cfgState && needsRelaunch(draftBody(draft), cfgState) && (state.running || state.recording || liveSessions())) {
+  if (draft && cfgState && needsRelaunch(curProfileBody(), cfgState) && (state.running || state.recording || liveSessions())) {
     hint = '⚠️ Зміна параметрів запуску перезапустить браузер — поточний прогін/жива сесія обірвуться.';
   }
   hintEl.textContent = hint;
@@ -551,6 +609,8 @@ function showAlert(text, kind = 'error') {
 const hintHtml = (hint) => (hint ? `<span class="def">${hint}</span>` : '');
 const fid = (path) => 'cf_' + path.replace(/\./g, '_');
 const chk = (lbl, path, on, hint) => `<div class="cfg-row chk"><label><input type="checkbox" data-p="${path}" ${on ? 'checked' : ''}> ${lbl}</label>${hintHtml(hint)}</div>`;
+// Тумблер у стилі Apple (iOS switch): той самий checkbox (data-p, клавіатура, фокус), але role="switch".
+const sw = (lbl, path, on, hint) => `<div class="cfg-row chk sw"><label><span class="sw-text">${lbl}</span><input type="checkbox" role="switch" class="ios-switch" data-p="${path}" ${on ? 'checked' : ''}></label>${hintHtml(hint)}</div>`;
 const txt = (lbl, path, v, hint) => `<div class="cfg-row"><label for="${fid(path)}">${lbl}</label><input type="text" id="${fid(path)}" data-p="${path}" value="${escapeHtml(v == null ? '' : v)}">${hintHtml(hint)}</div>`;
 const num = (lbl, path, v, hint) => `<div class="cfg-row"><label for="${fid(path)}">${lbl}</label><input type="number" id="${fid(path)}" data-p="${path}" value="${v == null ? '' : escapeHtml(v)}">${hintHtml(hint)}</div>`;
 
@@ -625,6 +685,25 @@ function renderCategory() {
     html = '<h3>Cookies</h3><div class="cat-desc">Підставлені cookies/storageState (Chromium).</div>';
     html += `<div class="cfg-row"><label>підставлено</label><span>${draft.cookiesCount || 0} шт.</span>` +
       (draft.cookiesCount ? ' <button type="button" class="btn btn-ghost btn-small" data-act="ck-clear">очистити</button>' : '') + '</div>';
+  } else if (activeCat === 'proxy') {
+    const px = draft.proxy;
+    const ap = cfgState && cfgState.proxy;
+    html = '<h3>Проксі ' + (ap ? (ap.enabled === false ? '<span class="def">(вимкнено — пряме зʼєднання)</span>' : '<span class="cfg-badge">увімкнено</span>') : '<span class="def">(пряме зʼєднання)</span>') + '</h3>';
+    html += '<div class="cat-desc">Увесь трафік браузера (рендер, прогони, живий запис) — через проксі. Діє для обох рушіїв.</div>';
+    html += sw('Увімкнути проксі', 'proxy.enabled', px.enabled !== false, 'вимкни — налаштування нижче збережуться, а браузер піде напряму. Перемикання = перезапуск браузера.');
+    // Підказки довгі — окремим рядком під полем (.stack).
+    const row = (lbl, path, v, hint, extra = '') => `<div class="cfg-row stack"><label for="${fid(path)}">${lbl}</label>` +
+      `<input type="${extra ? 'password' : 'text'}" id="${fid(path)}" data-p="${path}" value="${escapeHtml(v == null ? '' : v)}"${extra}>${hintHtml(hint)}</div>`;
+    html += row('сервер', 'proxy.server', px.server, 'IP:порт або host:порт (напр. 203.0.113.5:8080), або схема://host:порт — http, https, socks4, socks5. Порожньо = без проксі.');
+    html += row('логін', 'proxy.username', px.username, '');
+    html += row('пароль', 'proxy.password', px.password, px.hasPassword ? 'збережено — порожньо = не змінювати; щоб прибрати пароль, очисти логін.' : '',
+      ' autocomplete="new-password"' + (px.hasPassword ? ' placeholder="•••••• (збережено)"' : ''));
+    html += row('в обхід (bypass)', 'proxy.bypass', px.bypass, 'через кому, напр. localhost, *.internal — ці хости йдуть напряму.');
+    if (isCfx) html += '<div class="cat-desc">🦊 Camoufox: з увімкненим geoip (🧩 Рушій) timezone/locale/WebRTC підбираються під IP ПРОКСІ — без geoip вони з хоста й суперечать IP.</div>';
+    html += '<div class="cfg-actions"><button type="button" class="btn btn-secondary btn-small" data-act="proxy-check">' + proxyCheckLabel(proxyPatch(px, makeDraft(cfgState).proxy)) + '</button>' +
+      '<span class="def"> браузером (api.ipify.org); змінений проксі спершу застосовується (перезапуск браузера), решта змін — ні</span></div>';
+    html += '<details class="cfg-help" open><summary>ℹ️ Як працює проксі</summary><ul>' +
+      PROXY_HELP.map(([t, d]) => '<li><b>' + escapeHtml(t) + ':</b> ' + escapeHtml(d) + '</li>').join('') + '</ul></details>';
   }
   cfgBody.innerHTML = html;
 }
@@ -638,12 +717,16 @@ function onInput(e) {
   else val = e.target.value; // text і radio (у radio value = рядок рушія)
   setPath(draft, p, val);
   if (p === 'launch.engine') renderCategory(); // підсвітити вибраний варіант
+  if (p.startsWith('proxy.')) { // «Перевірити» ↔ «Застосувати й перевірити»
+    const cb = cfgBody.querySelector('[data-act="proxy-check"]');
+    if (cb && !cb.disabled) cb.textContent = proxyCheckLabel(proxyPatch(draft.proxy, makeDraft(cfgState).proxy));
+  }
   renderPresets(); renderNav(); renderFooter(); // «●» на пресеті/вкладці + кнопки футера
   // renderNav перестворює кнопки — фокус лишається в полі (воно в cfgBody, не в nav).
 }
 
 async function onBodyClick(e) {
-  const btn = e.target.closest && e.target.closest('[data-act]');
+  let btn = e.target.closest && e.target.closest('[data-act]');
   if (!btn || !draft || busy) return;
   const act = btn.dataset.act;
   if (act === 'fp-capture') {
@@ -653,6 +736,35 @@ async function onBodyClick(e) {
   } else if (act === 'fp-clear') {
     draft.fingerprint = null;
     renderCategory(); renderPresets(); renderNav(); renderFooter();
+  } else if (act === 'proxy-check') {
+    // Змінений проксі — спершу застосовуємо ЛИШЕ його (інші незастосовані зміни лишаються в чернетці).
+    const patch = proxyPatch(draft.proxy, makeDraft(cfgState).proxy);
+    if (patch !== undefined) {
+      const body = { proxy: patch };
+      if (!proxyOk(body)) return;
+      if (!await confirmRelaunch(body)) return;
+      const keep = draft;
+      const d = await applyProfile(body, 'Проксі');
+      if (!d) return;
+      draft = draftAfterProxyApply(keep, makeDraft(d));
+      renderAll();
+      if (d.launchError) return; // плашку з помилкою запуску вже показано
+    }
+    btn = cfgBody.querySelector('[data-act="proxy-check"]') || btn; // після renderAll — нова кнопка
+    btn.disabled = true;
+    const was = btn.textContent;
+    btn.textContent = '⏳ Перевіряю…';
+    try {
+      const r = await api.checkProxy();
+      if (r.ok) {
+        const msg = '🔀 Вихідний IP браузера: ' + r.ip + ' · проксі: ' + r.proxy + ' · ' + (Math.round(r.ms / 100) / 10) + ' с';
+        showAlert(msg, 'info'); logLine('info', msg);
+      } else {
+        const msg = '❌ Перевірка IP не вдалась: ' + r.error + ' · проксі: ' + r.proxy;
+        showAlert(msg); logLine('error', msg);
+      }
+    } catch (err) { showAlert('❌ Перевірка IP не вдалась: ' + err.message); }
+    finally { btn.disabled = false; btn.textContent = proxyCheckLabel(proxyPatch(draft.proxy, makeDraft(cfgState).proxy)) || was; }
   } else if (act === 'ck-clear') {
     try {
       const d = await api.postProfile({ cookies: null });
@@ -676,9 +788,19 @@ async function confirmRelaunch(body) {
 
 // «Застосувати»: draft → профіль. Якщо відрізняється від активного пресета — режим
 // «кастом» (activePresetId знімається), щоб ніщо не «повертало» пресет мовчки.
+// Невалідний проксі → плашка, нічого не застосовуємо. → true, якщо можна продовжувати.
+function proxyOk(body) {
+  const err = proxyError(body && body.proxy);
+  if (!err) return true;
+  showAlert('❌ Проксі: ' + err);
+  if (activeCat !== 'proxy') selectCat('proxy');
+  return false;
+}
+
 async function onSave() {
   if (!draft || busy) return;
-  const body = draftBody(draft);
+  const body = curProfileBody();
+  if (!proxyOk(body)) return;
   if (!await confirmRelaunch(body)) return;
   const wasDirty = isDirty();
   const d = await applyProfile(body, 'Конфіг');
@@ -713,7 +835,9 @@ async function applyProfile(body, note) {
   cfgState = d; draft = makeDraft(d);
   if (dlg && dlg.open) renderAll();
   logRunSep((note || 'Конфіг оновлено') + (d.relaunched ? ' (браузер перезапущено)' : ''));
-  logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize);
+  logLine('info', '⚙ рушій=' + d.launch.engine + ', webdriver=' + (d.stealth.webdriver ? 'false' : 'default') + ', stealthPlugin=' + d.launch.stealthPlugin + ', humanize=' + d.behavior.humanize
+    + ', проксі=' + (d.proxy ? d.proxy.server : 'немає'));
+  if (d.proxyWarning) { logLine('warn', '⚠️ Проксі: ' + d.proxyWarning); toast('⚠️ Проксі: ' + d.proxyWarning, { kind: 'warn', timeout: 10000 }); }
   updateHeaderChip(d);
   if (d.launchError) {
     logLine('error', '❌ Браузер не запустився: ' + d.launchError);
@@ -746,8 +870,10 @@ async function applyPreset(p) {
 // «💾 Оновити пресет «X»»: записати draft у пресет І застосувати.
 async function savePreset(p) {
   if (busy) return;
-  const body = draftBody(draft);
-  if (!await confirmRelaunch(body)) return;
+  const body = draftBody(draft);       // у пресет — без проксі
+  const applyBody = curProfileBody();  // застосовуємо — з проксі, якщо змінено
+  if (!proxyOk(applyBody)) return;
+  if (!await confirmRelaunch(applyBody)) return;
   try {
     await api.updatePreset(p.id, body);
     await loadPresets();
@@ -757,7 +883,7 @@ async function savePreset(p) {
     return;
   }
   rememberPreset(p.id);
-  const d = await applyProfile(body, 'Пресет «' + p.name + '» оновлено');
+  const d = await applyProfile(applyBody, 'Пресет «' + p.name + '» оновлено');
   if (d && !d.launchError) { toast('Пресет «' + p.name + '» оновлено й застосовано.', { kind: 'ok' }); dlg.close(); }
 }
 
@@ -770,7 +896,9 @@ async function createPreset() {
   });
   if (!name || !name.trim()) return;
   const body = draftBody(draft);
-  if (!await confirmRelaunch(body)) return;
+  const applyBody = curProfileBody();
+  if (!proxyOk(applyBody)) return;
+  if (!await confirmRelaunch(applyBody)) return;
   let r;
   try {
     r = await api.createPreset(name.trim(), body);
@@ -781,7 +909,7 @@ async function createPreset() {
     return;
   }
   if (r && r.id) rememberPreset(r.id);
-  const d = await applyProfile(body, 'Пресет «' + name.trim() + '» створено');
+  const d = await applyProfile(applyBody, 'Пресет «' + name.trim() + '» створено');
   if (d && !d.launchError) { toast('Створено пресет «' + name.trim() + '».', { kind: 'ok' }); dlg.close(); }
 }
 
