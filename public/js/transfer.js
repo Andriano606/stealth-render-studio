@@ -21,8 +21,9 @@ import { toast } from './dialogs.js';
 import { flushAllPages, flushPage, persistStatus } from './persist.js';
 import { loadPages, focusPageCard } from './scenarios.js';
 import {
-  parseBundle, planImport, collectFileRefs, remapFileRefs, summarizeImport, CONFLICT_STRATEGIES,
+  parseBundle, planImport, collectFileRefs, remapFileRefs, summarizeImport, CONFLICT_STRATEGIES, bundleProxyPublic,
 } from '../../lib/transfer.js';
+import { proxyLabel } from '../../lib/proxy.js';
 
 // Файл імпорту, більший за це, навіть не читаємо (вкладені файли кроків — до 50 МБ у base64 ≈ 67 МБ).
 export const IMPORT_FILE_MAX = 100 * 1024 * 1024;
@@ -41,12 +42,13 @@ function idsParam(sel) {
   return (Array.isArray(sel) ? sel : []).map((x) => String(x)).filter(Boolean).join(',');
 }
 
-// URL GET /export. Обидва параметри є завжди (порожній = нічого цього виду).
-export function exportHref({ presets, pages, files = true } = {}) {
+// URL GET /export. Усі параметри є завжди (порожній = нічого цього виду; proxy=1 — додати проксі цілим).
+export function exportHref({ presets, pages, files = true, proxy = false } = {}) {
   const q = new URLSearchParams();
   q.set('presets', idsParam(presets));
   q.set('pages', idsParam(pages));
   q.set('files', files ? '1' : '0');
+  q.set('proxy', proxy ? '1' : '0');
   return '/export?' + q.toString();
 }
 
@@ -65,12 +67,13 @@ export function selectionState(allIds, selected) {
 }
 
 // Кнопка «📤 Завантажити»: вимкнена з поясненням, якщо нічого не вибрано.
-export function exportState({ presets = 0, pages = 0, files = 0, includeFiles = true } = {}) {
-  if (!presets && !pages) return { disabled: true, reason: 'Вибери хоча б один пресет або сценарій.' };
+export function exportState({ presets = 0, pages = 0, files = 0, includeFiles = true, proxy = false } = {}) {
+  if (!presets && !pages && !proxy) return { disabled: true, reason: 'Вибери хоча б один пресет, сценарій або проксі.' };
   const parts = [];
   if (presets) parts.push('пресетів: ' + presets);
   if (pages) parts.push('сценаріїв: ' + pages);
   if (pages && files) parts.push(includeFiles ? 'файлів: ' + files : 'без файлів кроків');
+  if (proxy) parts.push('проксі (з логіном і паролем)');
   return { disabled: false, reason: 'У файл піде — ' + parts.join(', ') + '.' };
 }
 
@@ -82,6 +85,12 @@ export function countPageFiles(pages, selected) {
 // Чип статусу елемента прев'ю: {cls, text, title}.
 export function planChip(item, { kind = 'scenarios', presetsDb = true, selected = true } = {}) {
   if (!selected) return { cls: 'off', text: 'не вибрано', title: 'Не імпортується' };
+  if (kind === 'proxy') {
+    if (!item) return { cls: 'off', text: '—', title: '' };
+    if (item.reason === 'identical') return { cls: 'same', text: '= такий самий — без змін', title: 'Поточний проксі вже такий (сервер, логін, bypass, тумблер)' };
+    if (item.action === 'replace') return { cls: 'replace', text: 'замінить поточний проксі', title: 'Проксі буде замінено цілком (з логіном і паролем) — перезапуск браузера' };
+    return { cls: 'new', text: 'новий (зараз без проксі)', title: 'Проксі буде налаштовано — перезапуск браузера' };
+  }
   if (kind === 'presets' && !presetsDb) return { cls: 'skip', text: 'БД недоступна — пропуск', title: 'Пресети зберігаються лише в БД' };
   if (!item) return { cls: 'off', text: '—', title: '' };
   const what = kind === 'presets' ? 'пресет' : 'сценарій';
@@ -104,7 +113,25 @@ export function planChip(item, { kind = 'scenarios', presetsDb = true, selected 
 //   selected: {presets: Set<index>, scenarios: Set<index>}; onConflict: {presets, scenarios}.
 // → {presets: [row], scenarios: [row], counts, canImport, reason}
 //   row: {index, name, selected, plan, chip}
-export function planPreview({ bundle, existingPresets = [], existingPages = [], selected, onConflict = {}, presetsDb = true }) {
+// Підпис проксі в діалогах експорту/імпорту: адреса (+ логін), стан тумблера — окремо. Без пароля.
+export function proxyTitle(px) {
+  if (!px || !px.server) return '—';
+  // publicProxy (діалог експорту) пароля не має — лише hasPassword.
+  const withPw = { ...px, password: px.password || (px.hasPassword ? '•' : ''), enabled: true };
+  return proxyLabel(withPw) + (px.enabled === false ? ' · тумблер вимкнено' : '');
+}
+
+// Проксі з файлу проти поточного (на клієнті пароля немає — порівнюємо publicProxy; сервер перевіряє
+// повністю, з паролем). → plan-item або null (у файлі проксі немає).
+export function planProxyPreview(bundleProxy, currentPublic) {
+  const inc = bundleProxyPublic(bundleProxy);
+  if (!inc) return null;
+  if (stableJsonLocal(inc) === stableJsonLocal(currentPublic || null)) return { action: 'skip', reason: 'identical' };
+  return currentPublic && currentPublic.server ? { action: 'replace', reason: 'replaced' } : { action: 'create', reason: 'new' };
+}
+const stableJsonLocal = (v) => JSON.stringify(v && typeof v === 'object' ? Object.keys(v).sort().reduce((a, k) => { a[k] = v[k]; return a; }, {}) : v);
+
+export function planPreview({ bundle, existingPresets = [], existingPages = [], selected, onConflict = {}, presetsDb = true, currentProxy = null }) {
   const b = bundle || { presets: [], scenarios: [] };
   const sel = selected || { presets: new Set(), scenarios: new Set() };
   const one = (kind, items, existing) => {
@@ -120,15 +147,21 @@ export function planPreview({ bundle, existingPresets = [], existingPages = [], 
   };
   const presets = one('presets', b.presets || [], existingPresets);
   const scenarios = one('scenarios', b.scenarios || [], existingPages);
+  let proxy = null;
+  if (b.proxy) {
+    const isSel = !!sel.proxy;
+    const plan = planProxyPreview(b.proxy, currentProxy);
+    proxy = { label: proxyTitle(b.proxy), hasPassword: !!b.proxy.password, selected: isSel, plan, chip: planChip(plan, { kind: 'proxy', selected: isSel }) };
+  }
   const counts = { create: 0, replace: 0, skip: 0 };
-  for (const r of [...presets, ...scenarios]) {
+  for (const r of [...presets, ...scenarios, ...(proxy ? [proxy] : [])]) {
     if (!r.selected) continue;
     const a = r.plan ? r.plan.action : 'skip';
     counts[a] = (counts[a] || 0) + 1;
   }
   const todo = counts.create + counts.replace;
   let reason = '';
-  if (!presets.some((r) => r.selected) && !scenarios.some((r) => r.selected)) reason = 'Вибери хоча б один пресет або сценарій.';
+  if (!presets.some((r) => r.selected) && !scenarios.some((r) => r.selected) && !(proxy && proxy.selected)) reason = 'Вибери хоча б один пресет, сценарій або проксі.';
   else if (!todo) reason = 'Нічого імпортувати: усе вибране вже є або пропускається.';
   else {
     const p = [];
@@ -137,7 +170,7 @@ export function planPreview({ bundle, existingPresets = [], existingPages = [], 
     if (counts.skip) p.push('пропусків: ' + counts.skip);
     reason = 'Буде ' + p.join(', ') + '.';
   }
-  return { presets, scenarios, counts, canImport: todo > 0, reason };
+  return { presets, scenarios, proxy, counts, canImport: todo > 0, reason };
 }
 
 // Індекси сценаріїв, для яких треба завантажити й підмінити файли: вибрані й НЕ пропущені.
@@ -187,12 +220,13 @@ export function buildImportRequest({ bundle, selected, onConflict, fileMap = {},
       scenarios: applyFileMap(b.scenarios || [], fileMap, remapIdx),
       files: [],
     },
-    select: { presets: sortIdx(selected && selected.presets), scenarios: sortIdx(selected && selected.scenarios) },
+    select: { presets: sortIdx(selected && selected.presets), scenarios: sortIdx(selected && selected.scenarios), proxy: !!(selected && selected.proxy) },
     onConflict: {
       presets: CONFLICT_STRATEGIES.includes(onConflict && onConflict.presets) ? onConflict.presets : 'rename',
       scenarios: CONFLICT_STRATEGIES.includes(onConflict && onConflict.scenarios) ? onConflict.scenarios : 'rename',
     },
   };
+  if (b.proxy) out.bundle.proxy = b.proxy;
   if (dryRun) out.dryRun = true;
   return out;
 }
@@ -218,6 +252,14 @@ export function reportLines(report) {
   };
   one(report && report.presets, 'Пресет');
   one(report && report.scenarios, 'Сценарій');
+  const px = report && report.proxy;
+  if (px) {
+    const lbl = px.label ? ' ' + px.label : '';
+    if (px.action === 'create' || px.action === 'replace') out.push('Проксі' + lbl + ' застосовано' + (px.relaunched ? ' (браузер перезапущено)' : ''));
+    else if (px.reason === 'identical') out.push('Проксі' + lbl + ' — такий самий, без змін');
+    else if (px.reason === 'not_selected') out.push('Проксі з файлу не імпортовано (не вибрано)');
+    else out.push('Проксі з файлу не імпортовано');
+  }
   return out;
 }
 
@@ -246,7 +288,7 @@ export function presetsTouched(report) {
 export function importSnapshot(selected, onConflict) {
   const sel = selected || {};
   return {
-    selected: { presets: new Set(sel.presets || []), scenarios: new Set(sel.scenarios || []) },
+    selected: { presets: new Set(sel.presets || []), scenarios: new Set(sel.scenarios || []), proxy: !!sel.proxy },
     onConflict: { ...(onConflict || {}) },
   };
 }
@@ -393,12 +435,15 @@ function keepScroll(root, rerender) {
 // ---------- Експорт ----------
 // opts.presets / opts.pages: 'all' | 'none' | масив id — що вибрано наперед.
 export async function openExportDialog(opts = {}) {
-  const { dlg, body, foot } = modal({ title: '📤 Експорт пресетів і сценаріїв', cls: 'tr-export' });
+  const { dlg, body, foot } = modal({ title: '📤 Експорт пресетів, сценаріїв і проксі', cls: 'tr-export' });
   body.appendChild(h('p', { class: 'tr-loading', text: 'завантаження…' }));
   await flushAllPages(); // сервер віддає збережене — спершу дописуємо чергу (збій перевіряє кнопка)
   let presets = [], presetsDb = true;
   try { const d = await api.getPresets(); presets = d.presets || []; presetsDb = d.db !== false; } catch (_e) { presets = []; }
+  let proxyPub = null; // проксі профілю (без пароля — лише hasPassword); у файл піде з паролем (сервер)
+  try { const prof = await api.getProfile(); proxyPub = prof.proxy || null; } catch (_e) { proxyPub = null; }
   if (!dlg.open) return;
+  let includeProxy = opts.proxy === true && !!proxyPub;
   const pages = state.pages.slice();
   const pre = (v, ids) => new Set(v === 'none' ? [] : Array.isArray(v) ? ids.filter((x) => v.includes(x)) : ids);
   const selP = pre(opts.presets, presets.map((p) => p.id));
@@ -415,7 +460,7 @@ export async function openExportDialog(opts = {}) {
   const render = (fid) => keepScroll(body, () => renderNow(fid));
   const renderNow = (fid) => {
     clear(body);
-    body.appendChild(h('p', { class: 'dlg-msg', text: 'Файл .json можна імпортувати на іншій машині (📥). Профіль браузера і cookies не експортуються. Текст кроків (зокрема введені паролі) потрапляє у файл як є.' }));
+    body.appendChild(h('p', { class: 'dlg-msg', text: 'Файл .json можна імпортувати на іншій машині (📥). Конфіг браузера (поза пресетами) і cookies не експортуються; проксі — окремим пунктом нижче. Текст кроків (зокрема введені паролі) потрапляє у файл як є.' }));
     const secret = secretTextSteps(pages.filter((p) => selS.has(p.id)));
     if (secret.length) {
       body.appendChild(h('p', { class: 'tr-warns', role: 'note', text: '⚠ Схоже, у вибраних сценаріях є введення пароля (' + secret.slice(0, 3).map((x) => '«' + x.page + '» · «' + x.rec + '», крок ' + x.index).join('; ') + (secret.length > 3 ? '…' : '') + ') — цей текст буде у файлі відкритим текстом.' }));
@@ -435,7 +480,22 @@ export async function openExportDialog(opts = {}) {
     fcb.addEventListener('change', () => { includeFiles = fcb.checked; render('trExFiles'); });
     body.appendChild(h('label', { class: 'tr-item tr-files', for: 'trExFiles' }, fcb,
       h('span', null, 'Включити файли кроків ', h('span', { class: 'tr-meta', text: nFiles ? '(' + countText(nFiles, ['файл', 'файли', 'файлів']) + ', base64, до 50 МБ сумарно)' : '(у вибраних сценаріях немає кроків-файлів)' }))));
-    const st = exportState({ presets: selP.size, pages: selS.size, files: nFiles, includeFiles: includeFiles && nFiles > 0 });
+    // Проксі — незалежно від пресетів: окремий пункт, усі налаштування з логіном і паролем.
+    const pxBox = h('fieldset', { class: 'tr-block', id: 'trExProxy' }, h('legend', { class: 'tr-legend', text: '🔀 Проксі' }));
+    if (proxyPub) {
+      const pcb = h('input', { type: 'checkbox', id: 'trExProxyCb', checked: includeProxy });
+      pcb.addEventListener('change', () => { includeProxy = pcb.checked; render('trExProxyCb'); });
+      pxBox.appendChild(h('label', { class: 'tr-item', for: 'trExProxyCb' }, pcb,
+        h('span', { class: 'tr-name' }, h('span', { class: 'tr-title', text: 'Включити проксі' }),
+          h('span', { class: 'tr-meta', text: proxyTitle(proxyPub) + ' · незалежно від пресетів, разом із логіном і паролем' }))));
+      if (includeProxy && proxyPub.hasPassword) {
+        pxBox.appendChild(h('p', { class: 'tr-warns', role: 'note', text: '⚠ Пароль проксі буде у файлі відкритим текстом — не пересилай файл стороннім.' }));
+      }
+    } else {
+      pxBox.appendChild(h('p', { class: 'tr-empty', text: 'Проксі не налаштовано (⚙ → 🔀 Проксі).' }));
+    }
+    body.appendChild(pxBox);
+    const st = exportState({ presets: selP.size, pages: selS.size, files: nFiles, includeFiles: includeFiles && nFiles > 0, proxy: includeProxy });
     btn.disabled = st.disabled;
     hint.textContent = st.reason;
     hint.classList.toggle('warn', st.disabled);
@@ -449,9 +509,10 @@ export async function openExportDialog(opts = {}) {
       presets: selectionParam(presets.map((p) => p.id), selP),
       pages: selectionParam(pages.map((p) => p.id), selS),
       files: includeFiles,
+      proxy: includeProxy,
     });
     download(href);
-    const what = [selP.size ? countText(selP.size, ['пресет', 'пресети', 'пресетів']) : '', selS.size ? countText(selS.size, ['сценарій', 'сценарії', 'сценаріїв']) : ''].filter(Boolean).join(' і ');
+    const what = [selP.size ? countText(selP.size, ['пресет', 'пресети', 'пресетів']) : '', selS.size ? countText(selS.size, ['сценарій', 'сценарії', 'сценаріїв']) : '', includeProxy ? 'проксі' : ''].filter(Boolean).join(' і ');
     logLine('info', '📤 Експорт: ' + what + (selS.size ? (includeFiles ? ' (з файлами кроків)' : ' (без файлів кроків)') : '') + ' → .json');
     if (problem) {
       logLine('warn', '⚠️ ' + problem + ' У файлі — остання ЗБЕРЕЖЕНА версія сценаріїв.');
@@ -485,11 +546,12 @@ export async function openImportDialog() {
   let working = false;
   let loadFile = null;
   const { dlg, body, foot, setFocusAfter, onClose } = modal({
-    title: '📥 Імпорт пресетів і сценаріїв', cls: 'tr-import', locked: () => working, onDropFile: (f) => loadFile(f),
+    title: '📥 Імпорт пресетів, сценаріїв і проксі', cls: 'tr-import', locked: () => working, onDropFile: (f) => loadFile(f),
   });
   let parsed = null;          // {bundle, warnings, fileName}
   let existingPresets = [], presetsDb = true;
-  const selected = { presets: new Set(), scenarios: new Set() };
+  let currentProxy = null;    // проксі профілю (publicProxy, без пароля) — для чипа прев'ю
+  const selected = { presets: new Set(), scenarios: new Set(), proxy: false };
   const onConflict = { presets: 'rename', scenarios: 'rename' };
   let preview = null;
   let errorText = '';
@@ -542,7 +604,7 @@ export async function openImportDialog() {
     clear(content);
     if (!parsed) { renderFoot(); refocus(fid); return; }
     const b = parsed.bundle;
-    preview = planPreview({ bundle: b, existingPresets, existingPages: state.pages, selected, onConflict, presetsDb });
+    preview = planPreview({ bundle: b, existingPresets, existingPages: state.pages, selected, onConflict, presetsDb, currentProxy });
     content.appendChild(h('p', { class: 'tr-file' }, h('b', { text: parsed.fileName }),
       b.exportedAt ? ' · експортовано ' + new Date(b.exportedAt).toLocaleString('uk-UA') : null));
 
@@ -578,6 +640,17 @@ export async function openImportDialog() {
       }));
       content.appendChild(strategyGroup('scenarios', 'Якщо сценарій з такою назвою вже є (і відрізняється):'));
     }
+    if (preview.proxy) {
+      const px = preview.proxy;
+      const pcb = h('input', { type: 'checkbox', id: 'trImProxyCb', checked: px.selected });
+      pcb.addEventListener('change', () => { selected.proxy = pcb.checked; render('trImProxyCb'); });
+      content.appendChild(h('fieldset', { class: 'tr-block', id: 'trImProxy' },
+        h('legend', { class: 'tr-legend', text: '🔀 Проксі' }),
+        h('label', { class: 'tr-item', for: 'trImProxyCb' }, pcb,
+          h('span', { class: 'tr-name' }, h('span', { class: 'tr-title', text: px.label }),
+            h('span', { class: 'tr-meta', text: 'незалежно від пресетів · замінить проксі цілком' + (px.hasPassword ? ' (з логіном і паролем)' : '') + ' · перезапуск браузера' })),
+          h('span', { class: 'tr-chip ' + px.chip.cls, title: px.chip.title, text: px.chip.text }))));
+    }
     content.appendChild(h('p', { class: 'tr-note', text: 'Однакові (та сама назва і зміст) не дублюються. Сервер ще раз перевірить конфлікти під час імпорту — підсумок покаже, що зроблено насправді.' }));
     renderFoot();
     refocus(fid);
@@ -585,6 +658,7 @@ export async function openImportDialog() {
 
   const refreshPresets = async () => {
     try { const d = await api.getPresets(); existingPresets = d.presets || []; presetsDb = d.db !== false; } catch (_e) { existingPresets = []; }
+    try { const prof = await api.getProfile(); currentProxy = prof.proxy || null; } catch (_e) { currentProxy = null; }
   };
 
   loadFile = async (file) => {
@@ -602,6 +676,7 @@ export async function openImportDialog() {
     parsed = { bundle: r.bundle, warnings: r.warnings, fileName: file.name };
     selected.presets = new Set(r.bundle.presets.map((_x, i) => i));
     selected.scenarios = new Set(r.bundle.scenarios.map((_x, i) => i));
+    selected.proxy = !!r.bundle.proxy;
     render();
     const first = content.querySelector('input:not(:disabled)');
     if (first) first.focus();
@@ -700,11 +775,11 @@ export async function openImportDialog() {
 export function initTransfer() {
   const imp = $('importBtn'), exp = $('exportBtn');
   if (imp) imp.addEventListener('click', () => { if (!isBusy()) openImportDialog(); });
-  if (exp) exp.addEventListener('click', () => openExportDialog({ presets: 'all', pages: 'all' }));
+  if (exp) exp.addEventListener('click', () => openExportDialog({ presets: 'all', pages: 'all', proxy: true }));
   const sync = () => {
     if (imp) {
       imp.disabled = isBusy();
-      imp.title = isBusy() ? 'Імпорт недоступний під час прогону чи запису' : 'Імпорт пресетів і сценаріїв з файлу (.json)';
+      imp.title = isBusy() ? 'Імпорт недоступний під час прогону чи запису' : 'Імпорт пресетів, сценаріїв і проксі з файлу (.json)';
     }
   };
   on('busy', sync);

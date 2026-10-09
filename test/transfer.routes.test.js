@@ -463,3 +463,57 @@ test('POST /import: запис — однією транзакцією (db.tx); 
     assert.equal(d0.raw.pages.get(ok.scenarios[0].id).name, 'ok');
   } finally { db = null; }
 });
+
+// ---------- Проксі в бандлі ----------
+async function startProxyApp(proxy) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'px-'));
+  const config = loadConfig({ PROFILE_FILE: path.join(dir, 'profile.json'), UPLOAD_DIR: uploadDir }, dir);
+  const store = createProfileStore(config.PROFILE_FILE, { log: quiet });
+  store.load();
+  if (proxy) store.set({ ...store.get(), proxy });
+  const engine = { ...fakeEngine(), relaunches: 0 };
+  engine.relaunchBrowser = async () => { engine.relaunches++; };
+  const app = createApp({ config, engine, sem: createSemaphore(2), profileStore: store, getDb: () => null, log: quiet });
+  const server = await new Promise((r) => { const s2 = app.listen(0, '127.0.0.1', () => r(s2)); });
+  servers.push(server);
+  return { url: 'http://127.0.0.1:' + server.address().port, store, engine };
+}
+const PROXY_FULL = { server: 'http://h.test:3128', username: 'u', password: 'p@ss:w0rd', bypass: 'localhost', enabled: false };
+
+test('GET /export: proxy=1 — проксі цілим (з логіном і паролем), окремо від пресетів; proxy=0 / експорт сценарію — без; «усе» без параметрів — з проксі', async () => {
+  const { url } = await startProxyApp(PROXY_FULL);
+  const withPx = await (await fetch(url + '/export?presets=all&pages=all&files=0&proxy=1')).json();
+  assert.deepEqual(withPx.proxy, PROXY_FULL);
+  const noPx = await (await fetch(url + '/export?presets=all&pages=all&files=0&proxy=0')).json();
+  assert.equal('proxy' in noPx, false);
+  assert.equal('proxy' in await (await fetch(url + '/export?presets=&pages=1&files=1')).json(), false, 'без proxy= → не додаємо');
+  assert.deepEqual((await (await fetch(url + '/export')).json()).proxy, PROXY_FULL);
+  assert.equal((await fetch(url + '/export?proxy=2')).status, 400);
+  const { url: url2 } = await startProxyApp(null);
+  assert.equal('proxy' in await (await fetch(url2 + '/export?presets=&pages=&proxy=1')).json(), false, 'проксі не налаштовано');
+});
+
+test('POST /import: проксі з файлу — застосовано цілком (пароль, тумблер) + перезапуск; такий самий — пропуск; не вибрано — пропуск; dryRun — без змін', async () => {
+  const { url, store, engine } = await startProxyApp({ server: 'http://old.test:1', username: 'old', password: 'oldpw' });
+  const bundle = { format: BUNDLE_FORMAT, version: 1, proxy: PROXY_FULL };
+  const post = (body) => fetch(url + '/import', json('POST', body)).then((r) => r.json());
+  const dry = await post({ bundle, dryRun: true });
+  assert.deepEqual({ action: dry.proxy.action, reason: dry.proxy.reason }, { action: 'replace', reason: 'replaced' });
+  assert.equal(store.get().proxy.server, 'http://old.test:1', 'dryRun нічого не міняє');
+  const off = await post({ bundle, select: { proxy: false } });
+  assert.equal(off.proxy.reason, 'not_selected');
+  assert.equal(store.get().proxy.server, 'http://old.test:1');
+  const r = await post({ bundle });
+  assert.equal(r.proxy.action, 'replace');
+  assert.equal(r.proxy.relaunched, true);
+  assert.equal(engine.relaunches, 1);
+  assert.deepEqual(store.get().proxy, PROXY_FULL);
+  assert.equal(JSON.stringify(r).includes('p@ss:w0rd'), false, 'у відповіді пароля немає');
+  assert.match(r.summary, /проксі/);
+  const again = await post({ bundle });
+  assert.equal(again.proxy.reason, 'identical');
+  assert.equal(engine.relaunches, 1, 'такий самий — без перезапуску');
+  // проксі у файлі без пароля → пароль прибирається (а не лишається старий)
+  await post({ bundle: { ...bundle, proxy: { server: 'h.test:3128', username: 'u' } } });
+  assert.equal(store.get().proxy.password, undefined);
+});

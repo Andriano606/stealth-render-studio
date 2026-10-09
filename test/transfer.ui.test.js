@@ -7,7 +7,7 @@ import {
   exportHref, selectionParam, selectionState, exportState, countPageFiles, planChip, planPreview,
   uploadTargets, fileStatus, missingFileText, applyFileMap, buildImportRequest, importedFocusId,
   reportLines, base64ToBytes, countText, STRATEGY_LABELS,
-  flushProblem, importMayHaveWritten, presetsTouched, importSnapshot, secretTextSteps,
+  flushProblem, importMayHaveWritten, presetsTouched, importSnapshot, secretTextSteps, planProxyPreview, proxyTitle,
 } from '../public/js/transfer.js';
 import { createPersistQueue } from '../public/js/persist.js';
 import { buildBundle, parseBundle, CONFLICT_STRATEGIES } from '../lib/transfer.js';
@@ -22,11 +22,12 @@ const page = (id, name, extra = {}) => ({
 const sets = (p = [], s = []) => ({ presets: new Set(p), scenarios: new Set(s) });
 
 // ---------- експорт ----------
-test('exportHref: обидва параметри завжди; all / список id / порожньо; files 1|0', () => {
-  assert.equal(exportHref({ presets: 'all', pages: 'all' }), '/export?presets=all&pages=all&files=1');
-  assert.equal(exportHref({ presets: [], pages: [17], files: true }), '/export?presets=&pages=17&files=1');
-  assert.equal(exportHref({ presets: [1, 2], pages: null, files: false }), '/export?presets=1%2C2&pages=&files=0');
-  assert.equal(exportHref(), '/export?presets=&pages=&files=1');
+test('exportHref: усі параметри завжди; all / список id / порожньо; files 1|0; proxy 1|0', () => {
+  assert.equal(exportHref({ presets: 'all', pages: 'all' }), '/export?presets=all&pages=all&files=1&proxy=0');
+  assert.equal(exportHref({ presets: 'all', pages: 'all', proxy: true }), '/export?presets=all&pages=all&files=1&proxy=1');
+  assert.equal(exportHref({ presets: [], pages: [17], files: true }), '/export?presets=&pages=17&files=1&proxy=0');
+  assert.equal(exportHref({ presets: [1, 2], pages: null, files: false }), '/export?presets=1%2C2&pages=&files=0&proxy=0');
+  assert.equal(exportHref(), '/export?presets=&pages=&files=1&proxy=0');
 });
 
 test('selectionParam / selectionState: усі → all, частина → id у порядку списку, жодного', () => {
@@ -197,7 +198,7 @@ test('buildImportRequest: без files[], індекси відсортован�
     bundle: b, selected: sets([], [1, 0]), onConflict: { presets: 'bogus', scenarios: 'replace' },
     fileMap: { f1: { fileId: 'n1', filename: 'cv.pdf' } }, remapIdx: [0],
   });
-  assert.deepEqual(req.select, { presets: [], scenarios: [0, 1] });
+  assert.deepEqual(req.select, { presets: [], scenarios: [0, 1], proxy: false });
   assert.deepEqual(req.onConflict, { presets: 'rename', scenarios: 'replace' });
   assert.deepEqual(req.bundle.files, []); // вміст уже завантажено; про відсутні попереджає сервер
   assert.equal(req.bundle.scenarios[0].recs[0].subs.find((s) => s.type === 'file' && s.filename === 'cv.pdf').fileId, 'n1');
@@ -332,4 +333,53 @@ test('planPreview replace: однаковий з існуючим, що пере
   ] });
   const pv = planPreview({ bundle, existingPages: [{ id: 1, name: 'S', url: 'u', recs: [{ id: 1, name: 'b', subs: [] }] }], selected: sets([], [0, 1]), onConflict: { scenarios: 'replace' } });
   assert.deepEqual(pv.scenarios.map((r) => r.chip.cls), ['replace', 'rename']);
+});
+
+// ---------- Проксі (окремо від пресетів) ----------
+const PXB = { server: 'http://h.test:3128', username: 'u', password: 'p@ss', bypass: '' };
+
+test('exportState: лише проксі — можна експортувати; у підказці «з логіном і паролем»', () => {
+  assert.equal(exportState({ proxy: true }).disabled, false);
+  assert.match(exportState({ proxy: true }).reason, /проксі \(з логіном і паролем\)/);
+  assert.match(exportState({}).reason, /пресет, сценарій або проксі/);
+});
+
+test('planPreview: рядок проксі — чип за порівнянням із поточним (без пароля на клієнті), вибір, лічильники', () => {
+  const bundle = buildBundle({ proxy: PXB, exportedAt: 'x' });
+  const cur = { server: 'http://h.test:3128', username: 'u', bypass: '', hasPassword: true, enabled: true };
+  const sel = (proxy) => ({ presets: new Set(), scenarios: new Set(), proxy });
+  let pv = planPreview({ bundle, selected: sel(true), currentProxy: cur });
+  assert.equal(pv.proxy.chip.text, '= такий самий — без змін');
+  assert.equal(pv.canImport, false);
+  pv = planPreview({ bundle, selected: sel(true), currentProxy: { ...cur, server: 'http://other.test:1' } });
+  assert.equal(pv.proxy.chip.text, 'замінить поточний проксі');
+  assert.equal(pv.canImport, true);
+  assert.match(pv.proxy.label, /http:\/\/h\.test:3128 \(логін u, з паролем\)/);
+  assert.equal(pv.proxy.label.includes('p@ss'), false);
+  pv = planPreview({ bundle, selected: sel(true), currentProxy: null });
+  assert.equal(pv.proxy.chip.text, 'новий (зараз без проксі)');
+  pv = planPreview({ bundle, selected: sel(false), currentProxy: null });
+  assert.equal(pv.proxy.chip.text, 'не вибрано');
+  assert.equal(pv.canImport, false);
+  assert.equal(planPreview({ bundle: buildBundle({ exportedAt: 'x' }), selected: sel(true) }).proxy, null);
+  assert.equal(planProxyPreview(null, cur), null);
+});
+
+test('buildImportRequest / importSnapshot / reportLines: проксі', () => {
+  const b = buildBundle({ proxy: PXB, exportedAt: 'x' });
+  const req = buildImportRequest({ bundle: b, selected: { presets: new Set(), scenarios: new Set(), proxy: true }, onConflict: {} });
+  assert.deepEqual(req.bundle.proxy, { server: 'http://h.test:3128', username: 'u', password: 'p@ss' }, 'проксі йде на сервер цілим (з паролем)');
+  assert.equal(req.select.proxy, true);
+  assert.equal('proxy' in buildImportRequest({ bundle: buildBundle({ exportedAt: 'x' }), selected: sets(), onConflict: {} }).bundle, false);
+  assert.equal(importSnapshot({ proxy: true }).selected.proxy, true);
+  assert.deepEqual(reportLines({ proxy: { action: 'replace', label: 'http://h.test:3128', relaunched: true } }), ['Проксі http://h.test:3128 застосовано (браузер перезапущено)']);
+  assert.deepEqual(reportLines({ proxy: { action: 'skip', reason: 'identical', label: 'X' } }), ['Проксі X — такий самий, без змін']);
+  assert.deepEqual(reportLines({ proxy: { action: 'skip', reason: 'not_selected' } }), ['Проксі з файлу не імпортовано (не вибрано)']);
+});
+
+test('proxyTitle: адреса й логін, стан тумблера окремо, без пароля', () => {
+  assert.equal(proxyTitle({ server: 'http://h.test:3128', username: 'u', password: 'x', enabled: false }), 'http://h.test:3128 (логін u, з паролем) · тумблер вимкнено');
+  assert.equal(proxyTitle({ server: 'http://h.test:3128', hasPassword: false }), 'http://h.test:3128');
+  assert.equal(proxyTitle({ server: 'http://h.test:3128', username: 'u', hasPassword: true, enabled: true }), 'http://h.test:3128 (логін u, з паролем)', 'publicProxy з діалогу експорту');
+  assert.equal(proxyTitle(null), '—');
 });

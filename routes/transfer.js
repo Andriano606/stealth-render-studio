@@ -17,7 +17,11 @@ import { asyncHandler, httpError } from '../lib/http.js';
 import { resolveUpload } from '../lib/uploads.js';
 import {
   CONFLICT_STRATEGIES, buildBundle, parseBundle, planImport, collectFileRefs, summarizeImport, bundleFilename,
+  planProxy, proxyImportPatch,
 } from '../lib/transfer.js';
+import { applyProfilePatch } from '../lib/profile.js';
+import { proxyLabel } from '../lib/proxy.js';
+import { humanError } from '../lib/errText.js';
 
 export const IMPORT_PATH = '/import';
 export const DEFAULT_EXPORT_FILES_MAX_BYTES = 50 * 1024 * 1024;
@@ -69,8 +73,12 @@ async function readFiles(refs, { uploadDir, maxBytes, include }) {
 // select.presets / select.scenarios: масив цілих індексів ≥ 0 або відсутнє (= усі). Сміття → помилка.
 function parseSelect(sel) {
   if (sel === undefined || sel === null) return {};
-  if (typeof sel !== 'object' || Array.isArray(sel)) return { error: 'Вибір (select) має бути обʼєктом {presets?, scenarios?}' };
+  if (typeof sel !== 'object' || Array.isArray(sel)) return { error: 'Вибір (select) має бути обʼєктом {presets?, scenarios?, proxy?}' };
   const out = {};
+  if (sel.proxy !== undefined && sel.proxy !== null) {
+    if (typeof sel.proxy !== 'boolean') return { error: 'Вибір (select.proxy) має бути true або false' };
+    out.proxy = sel.proxy;
+  }
   for (const k of ['presets', 'scenarios']) {
     if (sel[k] === undefined || sel[k] === null) continue;
     if (!Array.isArray(sel[k]) || !sel[k].every((i) => Number.isInteger(i) && i >= 0)) {
@@ -95,7 +103,8 @@ function parseOnConflict(v) {
 
 const maxNum = (nums) => nums.reduce((m, n) => (Number.isFinite(n) && n > m ? n : m), 0);
 
-export function transferRoutes({ config, getDb, pagesMem, log = console }) {
+// profileStore/engine — для проксі (глобальний експорт переносить його окремо від пресетів, з паролем).
+export function transferRoutes({ config, getDb, pagesMem, profileStore = null, engine = null, log = console }) {
   const r = express.Router();
   const mem = pagesMem || new Map();
   const uploadDir = config.UPLOAD_DIR;
@@ -115,11 +124,15 @@ export function transferRoutes({ config, getDb, pagesMem, log = console }) {
     if (pageIds === null) throw httpError(400, 'Параметр pages — очікується список id через кому або all');
     const files = String(q.files === undefined ? '1' : q.files);
     if (files !== '0' && files !== '1') throw httpError(400, 'Параметр files — очікується 0 або 1');
+    // proxy=1 — додати проксі (усі налаштування, з логіном і паролем). Без presets/pages («усе») — теж.
+    const proxyQ = String(q.proxy === undefined ? (none ? '1' : '0') : q.proxy);
+    if (proxyQ !== '0' && proxyQ !== '1') throw httpError(400, 'Параметр proxy — очікується 0 або 1');
 
     const db = getDb();
     const presets = db && (presetIds === 'all' || presetIds.length) ? pick(await db.presets.list(), presetIds) : [];
     const pages = pageIds === 'all' || pageIds.length ? pick(await listPages(db), pageIds) : [];
-    const bundle = buildBundle({ presets, scenarios: pages });
+    const proxy = proxyQ === '1' && profileStore ? profileStore.get().proxy : null;
+    const bundle = buildBundle({ presets, scenarios: pages, proxy });
     bundle.files = await readFiles(collectFileRefs(bundle.scenarios), { uploadDir, maxBytes, include: files === '1' });
 
     const { filename, asciiFilename } = bundleFilename(bundle);
@@ -217,10 +230,32 @@ export function transferRoutes({ config, getDb, pagesMem, log = console }) {
       for (const w of pageWrites) w.p.id = w.id;
     } // dryRun — нічого не пишемо (ні в БД, ні в памʼять).
 
-    const report = { presets: presetPlan, scenarios: scenarioPlan };
+    // Проксі — ПІСЛЯ успішного запису пресетів/сценаріїв (збій вище → проксі не чіпаємо).
+    // Звіт без пароля: лише підпис. Зміна проксі = перезапуск браузера (як POST /profile).
+    let proxyPlan = null;
+    if (bundle.proxy) {
+      if (!profileStore) {
+        proxyPlan = { action: 'skip', reason: 'unavailable' };
+      } else {
+        proxyPlan = planProxy(profileStore.get().proxy, bundle.proxy, { selected: sel.proxy !== false });
+        proxyPlan.label = proxyLabel(bundle.proxy);
+        if (!dryRun && proxyPlan.action !== 'skip') {
+          const { profile, launchChanged, proxyWarning } = applyProfilePatch(profileStore.get(), { proxy: proxyImportPatch(bundle.proxy) });
+          profileStore.set(profile);
+          profileStore.save();
+          if (proxyWarning) warnings.push('Проксі: ' + proxyWarning);
+          if (launchChanged && engine) {
+            try { await engine.relaunchBrowser(); proxyPlan.relaunched = true; }
+            catch (e) { warnings.push('Проксі застосовано, але браузер не перезапустився: ' + humanError(e)); }
+          }
+        }
+      }
+    }
+
+    const report = { presets: presetPlan, scenarios: scenarioPlan, proxy: proxyPlan };
     const summary = summarizeImport(report);
     if (!dryRun) log.log('📥 Імпорт: ' + summary);
-    return { ok: true, dryRun, db: !!db, presets: presetPlan, scenarios: scenarioPlan, warnings, summary };
+    return { ok: true, dryRun, db: !!db, presets: presetPlan, scenarios: scenarioPlan, proxy: proxyPlan, warnings, summary };
   }
 
   return r;

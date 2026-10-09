@@ -292,10 +292,11 @@ Draft-модель: значення не губляться при переми
   порівнює лише те, що реально йде в браузер). Відсутнє поле = увімкнено.
 - **Середовище, а не пресет:** `profile.proxy = {server, username?, password?, bypass?, enabled?}` живе ОКРЕМО від
   launch/stealth/behavior/fingerprint, тож вибір пресета (і Clear all) його не змінює, у тіло пресета
-  (`draftBody`), 📦 бандл і `PRESET_BODY_KEYS` він не потрапляє. Пароль — лише в `profile.json`
-  (gitignored): `GET/POST /profile` віддають `publicProxy` (`hasPassword`), логи — `proxyLabel`, 📤 експорт
-  конфігу — сервер/логін, а `client.mjs` бере пароль з env `PROXY_PASSWORD` (`PROXY_SERVER`/`PROXY_USERNAME`
-  перевизначають).
+  (`draftBody`, `PRESET_BODY_KEYS`) він не потрапляє. Пароль — у `profile.json` (gitignored): `GET/POST /profile`
+  віддають `publicProxy` (`hasPassword`), логи — `proxyLabel`, 📤 експорт конфігу — сервер/логін, а `client.mjs`
+  бере пароль з env `PROXY_PASSWORD` (`PROXY_SERVER`/`PROXY_USERNAME` перевизначають).
+- **📦 Глобальний експорт/імпорт переносить проксі ЦІЛИМ** (з логіном, паролем, bypass і станом тумблера) —
+  окремим полем бандла `proxy`, НЕ в пресетах (див. «📦 Експорт / імпорт»).
 - **Валідація** (`lib/proxy.js`, спільний з UI): `host:port` → `http://`, схеми http/https/socks4/socks5, порт
   обовʼязковий, `схема://логін:пароль@host:port` розбирається (percent-decoding). `POST /profile {proxy}`:
   `undefined` — без змін; `null`/порожній сервер — прибрати; пароль не надіслано → лишається збережений (той
@@ -348,7 +349,19 @@ Draft-модель: значення не губляться при переми
 `{format:'stealth-render-studio/bundle', version:1, exportedAt, presets:[{name, body}], scenarios:[{name, url,
 recs:[{name, subs}]}], files:[{fileId, filename, size, data:base64|null, missing?, skipped?:'too_large'|'excluded'}]}`.
 - **Чисто:** без id пресетів/сценаріїв/Дій (на імпорті — нові), без builtin, без runtime-полів (те саме правило,
-  що `pagePayload`: `stripTransient`, кроки `pending` — геть); id КРОКІВ лишаються. Профіль/cookies НЕ експортуються.
+  що `pagePayload`: `stripTransient`, кроки `pending` — геть); id КРОКІВ лишаються. Профіль (конфіг поза пресетами)
+  і cookies НЕ експортуються.
+- **🔀 Проксі** — окреме поле бандла `proxy: {server, username?, password?, bypass?, enabled?}` (усе, ПАРОЛЬ
+  ВІДКРИТИМ ТЕКСТОМ), незалежне від пресетів. Експорт: `GET /export?…&proxy=1` (без presets/pages — «усе» — теж з
+  проксі; `proxy=0`/без параметра при вибірці — ні); у діалозі 📤 хедера — пункт «🔀 Проксі → Включити проксі»
+  (увімкнено наперед, `openExportDialog({proxy:true})`) з попередженням про пароль; «Експорт пресетів» у
+  конфігураторі й «📤 Експортувати сценарій» — без проксі. Можна експортувати лише проксі. Імпорт: `parseBundle`
+  нормалізує (`normalizeProxy`; некоректний → попередження й пропуск, NUL → 400), прев'ю — рядок «🔀 Проксі» з
+  чипом (`planProxyPreview` проти `publicProxy` поточного: «новий (зараз без проксі)» / «замінить поточний
+  проксі» / «= такий самий — без змін») і галочкою (`select.proxy`). Сервер: `planProxy` — ПОВНЕ порівняння з
+  паролем і тумблером (`sameProxyFull`); застосування — `applyProfilePatch({proxy: proxyImportPatch(…)})` цілком
+  (без пароля у файлі пароль прибирається), ПІСЛЯ успішного запису пресетів/сценаріїв, перезапуск браузера, якщо
+  змінився; звіт `proxy: {action, reason, label, relaunched?}` без пароля; dryRun нічого не міняє.
   **Тіло пресета — білий список** `PRESET_BODY_KEYS` (`launch`/`stealth`/`behavior`/`fingerprint`/`clear:true`) і на
   експорті (`cleanPreset`), і на імпорті (`parseBundle`; відкинуте → попередження «поля … проігноровано»): cookies/
   storageState з чужого файлу інакше потрапили б у профіль через `applyProfilePatch` (чужа сесія / стерті cookies).
@@ -364,9 +377,10 @@ recs:[{name, subs}]}], files:[{fileId, filename, size, data:base64|null, missing
   продовжує « (N)», обрізає основу) | **Замінити** (перший з такою назвою; сценарій — той самий id) |
   **Пропустити**. Дубль назви всередині файлу → завжди нова назва (`duplicate_in_bundle`).
   Ліміти назв: пресет 80, сценарій 200 (як в UI).
-- **API:** `GET /export?presets=<ids|all>&pages=<ids|all>&files=0|1` (без обох — усе; Content-Disposition з
-  `filename*`); `POST /import {bundle, select?:{presets?, scenarios?: індекси}, onConflict?:{presets?, scenarios?},
-  dryRun?}` → `{ok, dryRun, db, presets:[план + id?], scenarios:[…], warnings, summary}`. Сервер авторитетно
+- **API:** `GET /export?presets=<ids|all>&pages=<ids|all>&files=0|1&proxy=0|1` (без presets/pages — усе, з проксі;
+  Content-Disposition з `filename*`); `POST /import {bundle, select?:{presets?, scenarios?: індекси, proxy?: bool},
+  onConflict?:{presets?, scenarios?}, dryRun?}` → `{ok, dryRun, db, presets:[план + id?], scenarios:[…], proxy, warnings,
+  summary}`. Сервер авторитетно
   перевалідовує (`parseBundle`: формат/версія/типи/ліміти, без `__proto__`, символ NUL `\u0000` будь-де → 400 —
   Postgres його не приймає) і перебудовує план проти ПОТОЧНОГО стану; імпорти — строго по черзі; ліміт тіла 20mb
   лише на цьому роуті; 400 — людський текст. Запис — ОДНІЄЮ транзакцією (`db.tx` = `withTransaction` у `lib/db.js`):

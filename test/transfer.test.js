@@ -5,6 +5,7 @@ import {
   BUNDLE_FORMAT, BUNDLE_VERSION, NAME_MAX, SCENARIO_NAME_MAX, MAX_PRESETS, MAX_SCENARIOS, MAX_STEPS, MAX_DEPTH,
   normName, stableJson, sameValue, cleanPreset, cleanScenario, collectFileRefs, buildBundle,
   parseBundle, uniqueName, planImport, remapFileRefs, summarizeImport, presetBody, PRESET_BODY_KEYS,
+  planProxy, proxyImportPatch, sameProxyFull, bundleProxyPublic,
 } from '../lib/transfer.js';
 
 const v2Click = { id: 's1', v: 2, type: 'click', x: 10, y: 20, sw: 1280, sh: 900, target: { locs: [{ kind: 'testid', value: 'go' }], pick: 0 } };
@@ -462,4 +463,52 @@ test('parseBundle: символ NUL (\\u0000) будь-де — помилка (
     assert.match(r.error, /NUL/);
   }
   assert.ok(parseBundle(bundleOf({ scenarios: [S()] })).ok);
+});
+
+// ---------- Проксі в бандлі (окремо від пресетів, з паролем) ----------
+const PX = { server: 'http://h.test:3128', username: 'u', password: 'p@ss', bypass: 'localhost', enabled: false };
+
+test('buildBundle: проксі — окреме поле з УСІМА налаштуваннями (і паролем); без проксі поля немає; у тіло пресета не потрапляє', () => {
+  const b = buildBundle({ presets: [{ name: 'P', body: { launch: { headless: true }, proxy: PX } }], proxy: PX, exportedAt: 'x' });
+  assert.deepEqual(b.proxy, PX);
+  assert.equal('proxy' in b.presets[0].body, false, 'пресет без проксі (PRESET_BODY_KEYS)');
+  assert.equal(PRESET_BODY_KEYS.includes('proxy'), false);
+  assert.equal('proxy' in buildBundle({ exportedAt: 'x' }), false);
+  assert.equal('proxy' in buildBundle({ proxy: { server: '' }, exportedAt: 'x' }), false);
+  assert.deepEqual(buildBundle({ proxy: '1.2.3.4:8080', exportedAt: 'x' }).proxy, { server: 'http://1.2.3.4:8080' });
+});
+
+test('parseBundle: проксі — валідний переноситься як є (з паролем); некоректний → попередження і пропуск; NUL → 400; лише проксі — не «порожній файл»', () => {
+  const ok = parseBundle({ format: BUNDLE_FORMAT, version: 1, proxy: PX });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.bundle.proxy, PX);
+  assert.equal(ok.warnings.some((w) => /немає ні пресетів/.test(w)), false);
+  const bad = parseBundle({ format: BUNDLE_FORMAT, version: 1, proxy: { server: 'h.test' } });
+  assert.equal(bad.ok, true);
+  assert.equal('proxy' in bad.bundle, false);
+  assert.ok(bad.warnings.some((w) => /Проксі у файлі некоректний .*порт.* пропущено/.test(w)), bad.warnings.join('|'));
+  assert.equal(parseBundle({ format: BUNDLE_FORMAT, version: 1, proxy: { server: 'h.test:1', password: 'a\u0000b' } }).ok, false);
+  assert.equal('proxy' in parseBundle({ format: BUNDLE_FORMAT, version: 1 }).bundle, false);
+  // старий бандл без проксі — як раніше
+  assert.equal(parseBundle(JSON.stringify(buildBundle({ scenarios: [page()], exportedAt: 'x' }))).ok, true);
+});
+
+test('planProxy / proxyImportPatch / sameProxyFull: повне порівняння (з паролем і тумблером); заміна цілком', () => {
+  assert.equal(planProxy({ ...PX }, null), null);
+  assert.deepEqual(planProxy({ ...PX }, PX), { action: 'skip', reason: 'identical' });
+  assert.deepEqual(planProxy({ ...PX, password: 'other' }, PX), { action: 'replace', reason: 'replaced' }, 'інший пароль — не «такий самий»');
+  assert.deepEqual(planProxy({ ...PX, enabled: true }, PX).action, 'replace', 'інший стан тумблера');
+  assert.deepEqual(planProxy(null, PX), { action: 'create', reason: 'new' });
+  assert.deepEqual(planProxy(null, PX, { selected: false }), { action: 'skip', reason: 'not_selected' });
+  assert.deepEqual(proxyImportPatch(PX), { server: 'http://h.test:3128', username: 'u', password: 'p@ss', bypass: 'localhost', enabled: false });
+  assert.deepEqual(proxyImportPatch({ server: 'h.test:1' }), { server: 'http://h.test:1', username: '', password: '', bypass: '', enabled: true }, 'без пароля у файлі — пароль прибирається');
+  assert.equal(sameProxyFull({ ...PX }, { ...PX, server: 'h.test:3128' }), true, 'нормалізація');
+  assert.deepEqual(bundleProxyPublic(PX), { server: 'http://h.test:3128', username: 'u', bypass: 'localhost', hasPassword: true, enabled: false });
+});
+
+test('summarizeImport: проксі в підсумку', () => {
+  assert.equal(summarizeImport({ presets: [], scenarios: [], proxy: { action: 'replace', reason: 'replaced' } }), 'Імпортовано: проксі');
+  assert.equal(summarizeImport({ proxy: { action: 'skip', reason: 'identical' } }), 'Нічого не імпортовано: проксі такий самий');
+  assert.match(summarizeImport({ scenarios: [{ action: 'create', reason: 'new' }], proxy: { action: 'create', reason: 'new' } }), /^Імпортовано: сценаріїв 1, проксі$/);
+  assert.equal(summarizeImport({}), 'Нічого не імпортовано: файл порожній');
 });
