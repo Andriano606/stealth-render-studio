@@ -1,7 +1,7 @@
 // Юніт-тести рушія (lib/engine.js): чисті білдери опцій + пул із фейковими запускачами.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { launchArgs, launchFlags, camoufoxOptions, engineKind, createEngine } from '../lib/engine.js';
+import { launchArgs, launchFlags, camoufoxOptions, engineKind, createEngine, launchKey } from '../lib/engine.js';
 import { defaultProfile, applyProfilePatch } from '../lib/profile.js';
 
 const SI = ['--disable-features=IsolateOrigins,site-per-process', '--disable-site-isolation-trials'];
@@ -366,4 +366,34 @@ test('engine: вимкнений перемикачем проксі не йде
   const e = createEngine({ getProfile: () => profile, launchers: w.launchers, poolSize: 1, log: quiet });
   await e.ensureEngine();
   assert.equal('proxy' in w.browsers[0].opts, false);
+});
+
+test('launchKey: рушій + реальні прапорці запуску + активний проксі; fingerprint/stealth/behavior не впливають', () => {
+  const p = defaultProfile();
+  const k = launchKey(p);
+  assert.equal(launchKey({ ...p, fingerprint: { userAgent: 'X' }, stealth: {}, behavior: { humanize: false } }), k);
+  assert.equal(launchKey({ ...p, launch: { ...p.launch, realGpu: undefined } }), k, 'відсутній прапорець = дефолт (увімкнено)');
+  assert.notEqual(launchKey({ ...p, launch: { ...p.launch, stealthPlugin: false } }), k);
+  assert.notEqual(launchKey({ ...p, launch: { ...p.launch, engine: 'camoufox' } }), k);
+  assert.notEqual(launchKey({ ...p, proxy: { server: 'http://h:1' } }), k);
+  assert.equal(launchKey({ ...p, proxy: { server: 'http://h:1', enabled: false } }), k, 'вимкнений проксі = пряме зʼєднання');
+  // Camoufox: Chromium-прапорці не діють.
+  const c = { ...p, launch: { ...p.launch, engine: 'camoufox' } };
+  assert.equal(launchKey({ ...c, launch: { ...c.launch, stealthPlugin: false } }), launchKey(c));
+  assert.notEqual(launchKey({ ...c, launch: { ...c.launch, camoufoxGeoip: false } }), launchKey(c));
+});
+
+test('engine.unitWithProfile: контекст основного браузера з ІНШИМ fingerprint, без зміни профілю; інший запуск → помилка', async () => {
+  const w = fakeWorld();
+  const profile = defaultProfile();
+  const e = createEngine({ getProfile: () => profile, launchers: w.launchers, poolSize: 1, log: quiet });
+  const u = await e.unitWithProfile({ ...profile, fingerprint: { userAgent: 'Other/1', locale: 'uk-UA' } });
+  assert.equal(u.fromPool, false);
+  assert.equal(u.context.o.userAgent, 'Other/1');
+  assert.equal(u.context.o.locale, 'uk-UA');
+  assert.match(u.context.inits[0], /Other\/1/);
+  assert.equal(w.launches.length, 1, 'той самий браузер');
+  assert.equal(profile.fingerprint, null, 'застосований профіль не змінено');
+  await assert.rejects(e.unitWithProfile({ ...profile, launch: { ...profile.launch, engine: 'camoufox' } }), /окремий браузер/);
+  await e.close();
 });

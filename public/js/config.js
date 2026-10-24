@@ -18,7 +18,7 @@
 // Draft-модель: значення не губляться при перемиканні категорій; «Застосувати» застосовує.
 // Проксі (категорія «🔀 Проксі») — середовище, а НЕ пресет: у тіло пресета не йде (draftBody),
 // лише в POST /profile (profileBody → proxyPatch); пароль із сервера не приходить (hasPassword).
-import { $, h, clear, escapeHtml } from './dom.js';
+import { $, h, clear, escapeHtml, copyText } from './dom.js';
 import { normalizeProxy } from '../../lib/proxy.js';
 import { state, on, emit, storage } from './state.js';
 import { api } from './api.js';
@@ -34,6 +34,7 @@ export const CATS = [
   { key: 'fingerprint', label: '🧬 Fingerprint' },
   { key: 'cookies', label: '🍪 Cookies' },
   { key: 'proxy', label: '🔀 Проксі' },
+  { key: 'mcp', label: '🤖 MCP' }, // не налаштування профілю — як підключити стенд до Claude
 ];
 
 // Підпис конфігу для порівняння draft із пресетом (що саме контролюють пресети).
@@ -96,6 +97,28 @@ export const PROXY_HELP = Object.freeze([
   ['Застосування', 'зміна проксі перезапускає браузер. У лозі кожного прогону — рядок «🔀 Проксі: …».'],
   ['Camoufox', 'з увімкненим geoip (🧩 Рушій) IP визначається вже через проксі, і під нього підбираються часовий пояс, мова та WebRTC. Без geoip вони беруться з твого компʼютера — тобто суперечать IP проксі.'],
   ['Обмеження', 'SOCKS із логіном і паролем Chromium у Playwright не підтримує — при застосуванні буде попередження; для Chromium бери HTTP-проксі.'],
+]);
+
+// ---------- 🤖 MCP (підключення стенду до Claude) ----------
+// MCP-сервер живе в самому сервері (POST /mcp, Streamable HTTP) — адреса = адреса UI.
+export const MCP_NAME = 'stealth-render';
+export const mcpUrl = (origin) => String(origin || 'http://localhost:3000').replace(/\/+$/, '') + '/mcp';
+// --scope user — доступний у всіх проєктах Claude Code (а не лише в поточній теці).
+export const mcpAddCommand = (origin) => 'claude mcp add --transport http --scope user ' + MCP_NAME + ' ' + mcpUrl(origin);
+// Для .mcp.json проєкту (спільний з командою конфіг) або ручного додавання.
+export const mcpJsonConfig = (origin) => JSON.stringify({ mcpServers: { [MCP_NAME]: { type: 'http', url: mcpUrl(origin) } } }, null, 2);
+export const MCP_TOOLS = Object.freeze([
+  ['get_config', 'застосований конфіг, пресети й прапорці, які можна перевизначити.'],
+  ['open_page', 'відкрити URL з обраним рушієм (chromium / camoufox), пресетом і прапорцями launch/stealth/behavior/fingerprint/proxy → текст, HTML, посилання, скрин, результат Cloudflare і лог конфігу.'],
+  ['list_scenarios', 'збережені сценарії та їхні Дії.'],
+  ['run_scenario', 'прогнати сценарій (усі Дії або до вказаної) з конфігом на один запит; кроки з сабмітом — лише з підтвердженням.'],
+]);
+export const MCP_HELP = Object.freeze([
+  ['Без збереження', 'конфіг, який обирає Claude, діє лише на один виклик: профіль тут не змінюється, браузер UI не перезапускається, прогони й живі сесії не перериваються.'],
+  ['Звідки браузер', 'той самий конфіг — теплий пул; інші fingerprint/stealth/cookies — новий контекст основного браузера; інший рушій або прапорці запуску — окремий тимчасовий браузер (закривається після 3 хв простою).'],
+  ['Сервер має працювати', 'MCP — частина цього сервера (npm start). Якщо його зупинено, Claude побачить «failed to connect».'],
+  ['Перевірка', 'claude mcp list — має бути «stealth-render … ✓ Connected»; у сесії Claude — /mcp.'],
+  ['Безпека', 'ендпоінт слухає лише localhost і перевіряє Host/Origin, як і решта API.'],
 ]);
 
 // Тіло пресета з draft (те, що контролюють пресети; БЕЗ проксі).
@@ -213,6 +236,7 @@ export const CAT_PATHS = {
   fingerprint: ['fingerprint'],
   cookies: [],
   proxy: [], // окремо: proxyPatch
+  mcp: [],   // нічого не змінює в профілі
 };
 const getPath = (o, path) => path.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o);
 const ENGINE_KEYS = new Set(['engine', 'camoufoxHumanize', 'camoufoxGeoip']);
@@ -704,7 +728,19 @@ function renderCategory() {
     html += '<div class="cfg-actions"><button type="button" class="btn btn-secondary btn-small" data-act="proxy-check">' + proxyCheckLabel(proxyPatch(px, makeDraft(cfgState).proxy)) + '</button>' +
       '<span class="def"> браузером (api.ipify.org); змінений проксі спершу застосовується (перезапуск браузера), решта змін — ні</span></div>';
     html += '<details class="cfg-help" open><summary>ℹ️ Як працює проксі</summary><ul>' +
-      PROXY_HELP.map(([t, d]) => '<li><b>' + escapeHtml(t) + ':</b> ' + escapeHtml(d) + '</li>').join('') + '</ul></details>';
+      PROXY_HELP.map(([t, d]) => '<li><b>' + escapeHtml(t) + ':</b> ' + escapeHtml(d) + '</li>').join('') + '</ul></details>';  } else if (activeCat === 'mcp') {
+    const origin = location.origin;
+    // <pre> росте за вмістом (на 390 px команда переноситься, нічого не ховається); user-select: all.
+    const block = (label, text, act, id) => `<div class="cfg-row stack mcp-block"><span class="mcp-label" id="${id}L">${label}</span>` +
+      `<pre id="${id}" class="mcp-code" tabindex="0" aria-labelledby="${id}L">${escapeHtml(text)}</pre>` +
+      `<button type="button" class="btn btn-secondary btn-small" data-act="${act}">📋 Копіювати</button></div>`;
+    html = '<h3>MCP для Claude</h3><div class="cat-desc">Дає Claude (Claude Code) користуватися стендом: обрати рушій і конфіг, відкрити сторінку й отримати її контент — без збереження налаштувань.</div>';
+    html += block('Команда для Claude Code (вставити в термінал)', mcpAddCommand(origin), 'mcp-copy-cmd', 'mcpCmd');
+    html += block('Або в .mcp.json проєкту', mcpJsonConfig(origin), 'mcp-copy-json', 'mcpJson');
+    html += '<details class="cfg-help" open><summary>🧰 Тули</summary><ul>' +
+      MCP_TOOLS.map(([t, d]) => '<li><b>' + escapeHtml(t) + ':</b> ' + escapeHtml(d) + '</li>').join('') + '</ul></details>';
+    html += '<details class="cfg-help"><summary>ℹ️ Як це працює</summary><ul>' +
+      MCP_HELP.map(([t, d]) => '<li><b>' + escapeHtml(t) + ':</b> ' + escapeHtml(d) + '</li>').join('') + '</ul></details>';
   }
   cfgBody.innerHTML = html;
 }
@@ -766,6 +802,19 @@ async function onBodyClick(e) {
       }
     } catch (err) { showAlert('❌ Перевірка IP не вдалась: ' + err.message); }
     finally { btn.disabled = false; btn.textContent = proxyCheckLabel(proxyPatch(draft.proxy, makeDraft(cfgState).proxy)) || was; }
+  } else if (act === 'mcp-copy-cmd' || act === 'mcp-copy-json') {
+    const text = act === 'mcp-copy-cmd' ? mcpAddCommand(location.origin) : mcpJsonConfig(location.origin);
+    const ok = await copyText(text);
+    if (ok) toast(act === 'mcp-copy-cmd' ? 'Команду скопійовано — встав у термінал.' : 'JSON скопійовано.', { kind: 'ok' });
+    else { // буфер недоступний — виділяємо текст, щоб скопіювати вручну
+      const pre = cfgBody.querySelector(act === 'mcp-copy-cmd' ? '#mcpCmd' : '#mcpJson');
+      if (pre) {
+        pre.focus();
+        const range = document.createRange(); range.selectNodeContents(pre);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      }
+      toast('Не вдалося скопіювати автоматично — текст виділено, натисни Ctrl+C.', { kind: 'warn' });
+    }
   } else if (act === 'ck-clear') {
     try {
       const d = await api.postProfile({ cookies: null });

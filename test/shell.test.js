@@ -7,7 +7,9 @@ import { healthBadges, clampSidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX, PANES } from
 import { kindGroup, groupMeta, formatCopy, LOG_GROUPS } from '../public/js/log.js';
 import {
   configStatus, chipInfo, changedCats, needsRelaunch, footerState, makeDraft, CATS, CAT_PATHS,
+  mcpUrl, mcpAddCommand, mcpJsonConfig, MCP_NAME, MCP_TOOLS,
 } from '../public/js/config.js';
+import { MCP_SERVER_NAME } from '../routes/mcp.js';
 import {
   splitScreens, pushScreen, dataUrlToBlob, deriveRunMeta, screenTitle, screenStatus, MAX_SCREENS,
   STATUS_TEXT, runBanner, runBannerText, placeholderMode,
@@ -114,6 +116,16 @@ test('changedCats: позначає лише категорії зі зміна�
   assert.deepEqual([...changedCats(null, applied)], []);
   // Кожна категорія меню має опис шляхів.
   for (const c of CATS) assert.ok(Array.isArray(CAT_PATHS[c.key]), c.key);
+});
+
+test('🤖 MCP: команда claude mcp add і .mcp.json з адреси UI; назва збігається з серверною', () => {
+  assert.equal(mcpUrl('http://localhost:3000'), 'http://localhost:3000/mcp');
+  assert.equal(mcpUrl('http://127.0.0.1:3101/'), 'http://127.0.0.1:3101/mcp');
+  assert.equal(mcpAddCommand('http://localhost:3000'), 'claude mcp add --transport http --scope user stealth-render http://localhost:3000/mcp');
+  assert.deepEqual(JSON.parse(mcpJsonConfig('http://localhost:3000')), { mcpServers: { 'stealth-render': { type: 'http', url: 'http://localhost:3000/mcp' } } });
+  assert.equal(MCP_NAME, MCP_SERVER_NAME);
+  assert.ok(CATS.some((c) => c.key === 'mcp'));
+  assert.deepEqual(MCP_TOOLS.map(([n]) => n), ['get_config', 'open_page', 'list_scenarios', 'run_scenario']);
 });
 
 test('needsRelaunch: лише коли змінюються launch-прапорці (у т.ч. Clear all)', () => {

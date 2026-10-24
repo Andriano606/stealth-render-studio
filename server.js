@@ -9,6 +9,7 @@ import { createSemaphore } from './lib/semaphore.js';
 import { initDb } from './lib/db.js';
 import { createApp } from './lib/app.js';
 import { createSessionStore } from './lib/session.js';
+import { createScratchBrowsers } from './lib/scratch.js';
 
 const config = loadConfig();
 fs.mkdirSync(config.UPLOAD_DIR, { recursive: true });
@@ -20,11 +21,15 @@ profileStore.load();
 const stealthReady = setupStealthPlugin();
 stealthReady.catch((e) => console.error('Stealth-плагін не підвантажено:', e.message));
 
+const launchers = defaultLaunchers({ getStealthChromium: () => setupStealthPlugin() });
 const engine = createEngine({
   getProfile: () => profileStore.get(),
-  launchers: defaultLaunchers({ getStealthChromium: () => setupStealthPlugin() }),
+  launchers,
   poolSize: config.POOL_SIZE,
 });
+// MCP (POST /mcp): інший рушій/параметри запуску «на один запит» — окремі тимчасові браузери
+// (основний не перезапускається, профіль не змінюється).
+const scratch = createScratchBrowsers({ launchers });
 const sem = createSemaphore(config.MAX_CONCURRENT);
 let db = null;
 
@@ -32,7 +37,7 @@ let db = null;
 const sessions = createSessionStore();
 sessions.start();
 
-const app = createApp({ config, engine, sem, profileStore, sessions, getDb: () => db });
+const app = createApp({ config, engine, sem, profileStore, sessions, scratch, getDb: () => db });
 
 // Лише локальний інтерфейс за замовчуванням (config.HOST = 127.0.0.1).
 const server = app.listen(config.PORT, config.HOST, async () => {
@@ -44,7 +49,8 @@ const server = app.listen(config.PORT, config.HOST, async () => {
   } catch (e) {
     console.error('Браузер не запустився:', e.message);
   }
-  console.log(`\n  ▶  Відкрий у браузері:  http://localhost:${config.PORT}   (слухаю ${config.HOST})\n`);
+  console.log(`\n  ▶  Відкрий у браузері:  http://localhost:${config.PORT}   (слухаю ${config.HOST})`);
+  console.log(`  🤖 MCP для Claude Code:  claude mcp add --transport http --scope user stealth-render http://localhost:${config.PORT}/mcp\n`);
 });
 
 // Коректне завершення: закрити браузер і БД, потім вийти. (Власний обробник
@@ -58,6 +64,7 @@ async function shutdown(signal) {
   server.close();
   sessions.stop();
   await sessions.closeAll('сервер зупиняється').catch(() => {});
+  await scratch.closeAll().catch(() => {});
   await engine.close().catch(() => {});
   if (db) await db.end().catch(() => {});
   process.exit(0);

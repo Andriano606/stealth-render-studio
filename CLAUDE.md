@@ -56,14 +56,15 @@ npm start                   # http://localhost:3000
   `logs` (лог-рядки з реальних прапорців), `db` (схема + репозиторії), `uploads`,
   `http` (`asyncHandler` + error middleware), `app` (`createApp(deps)`),
   `session` (SessionStore живих сесій), `capture` (hit-test + опис елемента +
-  лічильники локаторів), `live` (живі сесії запису).
+  лічильники локаторів), `live` (живі сесії запису), `mcp` (протокол MCP / JSON-RPC),
+  `mcpTools` (тули MCP), `scratch` (тимчасові браузери для конфігу «на один запит»).
 - **Спільні ізоморфні модулі** (без Node-імпортів, роздаються браузеру як ES-модулі
   через білий список `GET /lib/<name>.js`, `SHARED_LIBS` у `lib/app.js`): `steps`, `coords`,
   `locators`, `textTemplate`, `proxy` (валідація/підпис проксі), `errText` (чищення помилок Playwright: ANSI, «Call log», net::ERR_* →
   українською; тим самим модулем чистить і сервер — `errorHandler`, `/live`, `/replay`), `transfer`
   (бандл експорту/імпорту пресетів і сценаріїв, план конфліктів назв — див. «📦 Експорт / імпорт»).
 - **routes/*.js** — HTTP-роути (render, replay, pages, recordings, presets, upload,
-  profile, health, live, transfer); залежності приходять через `createApp(deps)`. Сховище сценаріїв
+  profile, health, live, transfer, mcp); залежності приходять через `createApp(deps)`. Сховище сценаріїв
   у памʼяті (без БД) — спільне `d.pagesMem` (pages + transfer).
 - **public/** — фронтенд без збірки (див. розділ «Фронтенд» нижче): `index.html` (лише
   семантична розмітка і точки монтування), `css/*.css`, `js/*.js` — ES-модулі.
@@ -250,6 +251,41 @@ Shift+Esc виходить і з кадру, і з IME-поля; фокус у �
 кроки збережено, далі «⟲ Відновити» (префікс відтворюється заново); ⏹ Готово додає таб з
 останнім viewport-кадром (fullPage-знімка живої сесії немає); «з початку» додає нову Дію в КІНЕЦЬ.
 
+## 🤖 MCP для Claude (POST /mcp)
+
+Сервер сам є MCP-сервером (транспорт **Streamable HTTP**, без SSE і без сесій): Claude Code
+підключається однією командою (її ж показує вкладка конфігуратора «🤖 MCP» з кнопкою 📋 і лог старту сервера):
+```bash
+claude mcp add --transport http --scope user stealth-render http://localhost:3000/mcp
+```
+(або `.mcp.json`: `{"mcpServers":{"stealth-render":{"type":"http","url":"http://localhost:3000/mcp"}}}`).
+Сервер має бути запущений (`npm start`); Host/Origin перевіряє `hostGuard`, як і решту API.
+
+- **Тули** (`lib/mcpTools.js`): `get_config` (застосований конфіг без пароля проксі, пресети з тілом за білим
+  списком, перелік прапорців), `open_page` (url + `preset`/`engine`/`launch`/`stealth`/`behavior`/`fingerprint`/
+  `proxy`/`cookies` → заголовок з URL/HTTP/рушієм/джерелом браузера/Cloudflare/часом + «Лог конфігу» з
+  `describeContextLogs` + `content: text|html|none` (текст — головний документ + iframe), `links`,
+  `screenshot: none|viewport|full` (full обрізано до 8000 px), `waitFor`, `waitMs`, `scroll`, `maxChars`),
+  `list_scenarios` (Дії, кроки без рухів, `sideEffects`), `run_scenario` (`flattenScenario` + `runReplay`, як ▶;
+  `upto`; кроки з `isSideEffectStep` — лише з `confirmSideEffects:true`, інакше помилка ДО відкриття браузера;
+  автопокращення локаторів НЕ зберігаються).
+- **Конфіг лише на один виклик** (`resolveMcpProfile`, чиста): застосований → пресет (`presetBody` — cookies/
+  проксі з пресета не беруться) → engine → прапорці (невідомий/не boolean → помилка з переліком) → fingerprint
+  (зливається; `null` — без) → proxy (`false` — напряму, рядок — `normalizeProxy`) → `cookies:false`. Профіль
+  (`profile.json`) НЕ змінюється, основний браузер не перезапускається.
+- **Звідки браузер** (`unitSource`): той самий конфіг → теплий пул; інші лише fingerprint/stealth/cookies
+  (`contextSig`) → `engine.unitWithProfile` (новий контекст ОСНОВНОГО браузера; Camoufox ігнорує контекстні опції →
+  пул); інший `launchKey` (рушій, прапорці запуску, активний проксі) → `lib/scratch.js`: тимчасовий браузер,
+  кеш за ключем, max 2 (витісняється найдавніший вільний), закривається після 3 хв простою, `closeAll` на SIGTERM.
+  `launchForProfile`/`newUnitOn` — спільні з пулом (`lib/engine.js`).
+- **Протокол** (`lib/mcp.js`): initialize (версії 2025-11-25/06-18/03-26, 2024-11-05; невідома → найновіша),
+  ping, tools/list|call, порожні resources/prompts, батчі; помилка тула → `isError` з людським текстом
+  (`toolError` — очікувана, без логу сервера). HTTP: сповіщення → 202, битий JSON → -32700 (власний `express.json`,
+  глобальний парсер `/mcp` пропускає), непідтримувана `MCP-Protocol-Version` → 400, GET/DELETE → 405. Відʼєднання
+  клієнта → `signal` → контекст закривається, слот семафора звільняється.
+- **Тести:** `test/mcp.test.js` (протокол, чиста логіка, тули на фейках, scratch), `test/mcp.routes.test.js` (HTTP
+  через `createApp`), `test/engine.test.js` (`launchKey`, `unitWithProfile`), `test/shell.test.js` (команда/JSON у UI).
+
 ## Конфігуратор, опції та пресети
 
 Модалка (⚙) має **ліве сайд-меню категорій** + праву панель. Усе зберігається в
@@ -280,6 +316,8 @@ Shift+Esc виходить і з кадру, і з IME-поля; фокус у �
   `isAutomatedBrowser` у `public/js/config.js`), щоб тести/headless не записали свій відбиток.
 - **🍪 Cookies** — лічильник + очищення.
 - **🔀 Проксі** (`profile.proxy`, див. нижче) — сервер, логін, пароль, bypass + «Перевірити вихідний IP».
+- **🤖 MCP** — не налаштування: команда `claude mcp add …` і `.mcp.json` з адресою поточного UI (`mcpAddCommand`/
+  `mcpJsonConfig`, 📋 копіювання з запасним виділенням), список тулів і пояснення (див. «🤖 MCP для Claude»).
 
 Draft-модель: значення не губляться при перемиканні категорій; «Зберегти» застосовує.
 
@@ -752,6 +790,9 @@ lib/errText.js             # спільний (ізоморфний): чищен
 lib/proxy.js               # спільний (ізоморфний): проксі — валідація, опція Playwright, підпис без пароля
 lib/transfer.js            # спільний (ізоморфний): бандл експорту/імпорту, parseBundle, planImport, uniqueName
 routes/transfer.js         # GET /export, POST /import (пресети + сценарії + файли кроків)
+routes/mcp.js              # POST /mcp — MCP-сервер для Claude (Streamable HTTP)
+lib/mcp.js, lib/mcpTools.js# протокол MCP (JSON-RPC); тули get_config/open_page/list_scenarios/run_scenario
+lib/scratch.js             # тимчасові браузери для конфігу «на один запит» (MCP)
 lib/db.js, lib/uploads.js  # Postgres-репозиторії; завантаження файлів
 lib/logs.js, lib/semaphore.js, lib/http.js, lib/rng.js
 lib/coords.js              # чисті функції координат/скролу (спільний, юніт-тестований)
