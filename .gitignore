@@ -5,6 +5,7 @@ browser_profile/
 uploads/
 profile.json
 profile*.json
+sessions/
 *.log
 
 # ОС/редактор

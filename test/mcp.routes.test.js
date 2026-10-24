@@ -104,9 +104,11 @@ test('POST /mcp initialize → JSON, версія протоколу; спові
   assert.equal(n.body, null);
 });
 
-test('POST /mcp: tools/list — 4 тули зі схемами', async () => {
+test('POST /mcp: tools/list — усі тули зі схемами', async () => {
   const r = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { 'MCP-Protocol-Version': '2025-06-18' });
-  assert.deepEqual(r.body.result.tools.map((t) => t.name), ['get_config', 'open_page', 'list_scenarios', 'run_scenario']);
+  assert.deepEqual(r.body.result.tools.map((t) => t.name), ['get_config', 'open_page', 'list_scenarios', 'run_scenario',
+    'open_browser', 'browser_status', 'save_session', 'close_browser', 'list_sessions', 'delete_session']);
+  assert.ok(r.body.result.tools.every((t) => t.inputSchema && t.inputSchema.type === 'object' && t.description));
   const open = r.body.result.tools[1];
   assert.deepEqual(open.inputSchema.required, ['url']);
   assert.deepEqual(open.inputSchema.properties.engine.enum, ['chromium', 'camoufox']);

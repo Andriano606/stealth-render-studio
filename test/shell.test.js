@@ -125,7 +125,8 @@ test('🤖 MCP: команда claude mcp add і .mcp.json з адреси UI; �
   assert.deepEqual(JSON.parse(mcpJsonConfig('http://localhost:3000')), { mcpServers: { 'stealth-render': { type: 'http', url: 'http://localhost:3000/mcp' } } });
   assert.equal(MCP_NAME, MCP_SERVER_NAME);
   assert.ok(CATS.some((c) => c.key === 'mcp'));
-  assert.deepEqual(MCP_TOOLS.map(([n]) => n), ['get_config', 'open_page', 'list_scenarios', 'run_scenario']);
+  assert.deepEqual(MCP_TOOLS.map(([n]) => n), ['get_config', 'open_page', 'list_scenarios', 'run_scenario',
+    'open_browser', 'browser_status', 'save_session', 'close_browser', 'list_sessions / delete_session']);
 });
 
 test('needsRelaunch: лише коли змінюються launch-прапорці (у т.ч. Clear all)', () => {

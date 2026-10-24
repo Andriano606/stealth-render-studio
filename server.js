@@ -10,6 +10,7 @@ import { initDb } from './lib/db.js';
 import { createApp } from './lib/app.js';
 import { createSessionStore } from './lib/session.js';
 import { createScratchBrowsers } from './lib/scratch.js';
+import { createInteractiveBrowsers } from './lib/interactive.js';
 
 const config = loadConfig();
 fs.mkdirSync(config.UPLOAD_DIR, { recursive: true });
@@ -30,6 +31,8 @@ const engine = createEngine({
 // MCP (POST /mcp): інший рушій/параметри запуску «на один запит» — окремі тимчасові браузери
 // (основний не перезапускається, профіль не змінюється).
 const scratch = createScratchBrowsers({ launchers });
+// MCP open_browser: видимі вікна (користувач логіниться руками → save_session).
+const interactive = createInteractiveBrowsers({ launchers });
 const sem = createSemaphore(config.MAX_CONCURRENT);
 let db = null;
 
@@ -37,7 +40,7 @@ let db = null;
 const sessions = createSessionStore();
 sessions.start();
 
-const app = createApp({ config, engine, sem, profileStore, sessions, scratch, getDb: () => db });
+const app = createApp({ config, engine, sem, profileStore, sessions, scratch, interactive, getDb: () => db });
 
 // Лише локальний інтерфейс за замовчуванням (config.HOST = 127.0.0.1).
 const server = app.listen(config.PORT, config.HOST, async () => {
@@ -65,6 +68,7 @@ async function shutdown(signal) {
   sessions.stop();
   await sessions.closeAll('сервер зупиняється').catch(() => {});
   await scratch.closeAll().catch(() => {});
+  await interactive.closeAll().catch(() => {});
   await engine.close().catch(() => {});
   if (db) await db.end().catch(() => {});
   process.exit(0);

@@ -28,7 +28,7 @@ npm start                   # http://localhost:3000
   `postgres://<user>@localhost:5432/playwright_demo`. Перевизначається через `DATABASE_URL`.
   Якщо БД недоступна — сценарії живуть у пам'яті процесу сервера (до його перезапуску).
 - Змінні оточення (`lib/config.js`): `PORT` (3000), `DATABASE_URL`, `PROFILE_FILE`
-  (`./profile.json`), `UPLOAD_DIR` (`./uploads`), `HOST` (`127.0.0.1`), `ALLOWED_HOSTS`.
+  (`./profile.json`), `UPLOAD_DIR` (`./uploads`), `SESSIONS_DIR` (`./sessions` — сесії входу MCP), `HOST` (`127.0.0.1`), `ALLOWED_HOSTS`.
 - **Безпека локального сервісу:** сервер слухає ЛИШЕ `127.0.0.1` і перевіряє `Host`
   (`lib/guard.js`: лише localhost/127.0.0.1/[::1] — захист від DNS-rebinding) та `Origin`
   змінних запитів (крос-сайтовий POST → 403). `/upload` приймає лише
@@ -261,7 +261,7 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
 (або `.mcp.json`: `{"mcpServers":{"stealth-render":{"type":"http","url":"http://localhost:3000/mcp"}}}`).
 Сервер має бути запущений (`npm start`); Host/Origin перевіряє `hostGuard`, як і решту API.
 
-- **Тули** (`lib/mcpTools.js`): `get_config` (застосований конфіг без пароля проксі, пресети з тілом за білим
+- **Тули** (`lib/mcpTools.js`; вхід на сайти — нижче): `get_config` (застосований конфіг без пароля проксі, пресети з тілом за білим
   списком, перелік прапорців), `open_page` (url + `preset`/`engine`/`launch`/`stealth`/`behavior`/`fingerprint`/
   `proxy`/`cookies` → заголовок з URL/HTTP/рушієм/джерелом браузера/Cloudflare/часом + «Лог конфігу» з
   `describeContextLogs` + `content: text|html|none` (текст — головний документ + iframe), `links`,
@@ -269,6 +269,18 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
   `list_scenarios` (Дії, кроки без рухів, `sideEffects`), `run_scenario` (`flattenScenario` + `runReplay`, як ▶;
   `upto`; кроки з `isSideEffectStep` — лише з `confirmSideEffects:true`, інакше помилка ДО відкриття браузера;
   автопокращення локаторів НЕ зберігаються).
+- **Вхід на сайти (видимий браузер + збережені сесії):** `open_browser` (url + той самий вибір конфігу +
+  `session`) → ВИДИМЕ вікно (`lib/interactive.js`: окремий процес, `headless:false`, `viewport:null` без
+  `deviceScaleFactor`, наш stealth-скрипт для Chromium; max 2, живе до `close_browser` / закриття вікна / 30 хв без
+  звернень MCP / SIGTERM; без дисплея → людська помилка) → користувач логіниться руками → `browser_status` (вкладки,
+  cookies за доменами без значень, опц. текст/скрин активної вкладки) → `save_session {name, applyToProfile?}`
+  (`context.storageState({indexedDB:true})` → `lib/savedSessions.js`: файл `SESSIONS_DIR`/`<назва без регістру>.json`,
+  тека `sessions/` у .gitignore, режим 0600; та сама назва — перезапис; `applyToProfile` — `mergeStorageState` у
+  cookies профілю + `profile.json` + `drainPool`; у Camoufox-профілі пул cookies не бере → підказка). Далі
+  `session:"назва"` в `open_page`/`run_scenario`/`open_browser` (перекриває cookies профілю; Chromium — контекст
+  основного браузера, Camoufox теж отримує storageState: `newUnitOn(..., {camoufoxState})`, `unitSource(..., {withState})`
+  → не пул). `close_browser {saveAs}` — зберегти й закрити; `list_sessions` (лише кількість і домени) / `delete_session`.
+  Перевірено наживо (2026-10-25): видимий Chrome і Camoufox → cookie + localStorage переносяться в `open_page` обох рушіїв.
 - **Конфіг лише на один виклик** (`resolveMcpProfile`, чиста): застосований → пресет (`presetBody` — cookies/
   проксі з пресета не беруться) → engine → прапорці (невідомий/не boolean → помилка з переліком) → fingerprint
   (зливається; `null` — без) → proxy (`false` — напряму, рядок — `normalizeProxy`) → `cookies:false`. Профіль
@@ -283,7 +295,8 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
   (`toolError` — очікувана, без логу сервера). HTTP: сповіщення → 202, битий JSON → -32700 (власний `express.json`,
   глобальний парсер `/mcp` пропускає), непідтримувана `MCP-Protocol-Version` → 400, GET/DELETE → 405. Відʼєднання
   клієнта → `signal` → контекст закривається, слот семафора звільняється.
-- **Тести:** `test/mcp.test.js` (протокол, чиста логіка, тули на фейках, scratch), `test/mcp.routes.test.js` (HTTP
+- **Тести:** `test/mcp.test.js` (протокол, чиста логіка, тули на фейках, scratch), `test/mcpLogin.test.js` (видимий
+  браузер, сховище сесій, повний цикл входу на фейках), `test/mcp.routes.test.js` (HTTP
   через `createApp`), `test/engine.test.js` (`launchKey`, `unitWithProfile`), `test/shell.test.js` (команда/JSON у UI).
 
 ## Конфігуратор, опції та пресети
@@ -793,6 +806,8 @@ routes/transfer.js         # GET /export, POST /import (пресети + сце�
 routes/mcp.js              # POST /mcp — MCP-сервер для Claude (Streamable HTTP)
 lib/mcp.js, lib/mcpTools.js# протокол MCP (JSON-RPC); тули get_config/open_page/list_scenarios/run_scenario
 lib/scratch.js             # тимчасові браузери для конфігу «на один запит» (MCP)
+lib/interactive.js         # видимі вікна MCP open_browser (ручний вхід)
+lib/savedSessions.js       # збережені сесії входу (storageState) у SESSIONS_DIR
 lib/db.js, lib/uploads.js  # Postgres-репозиторії; завантаження файлів
 lib/logs.js, lib/semaphore.js, lib/http.js, lib/rng.js
 lib/coords.js              # чисті функції координат/скролу (спільний, юніт-тестований)
