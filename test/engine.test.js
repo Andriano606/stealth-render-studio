@@ -1,7 +1,7 @@
 // Юніт-тести рушія (lib/engine.js): чисті білдери опцій + пул із фейковими запускачами.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { launchArgs, launchFlags, camoufoxOptions, engineKind, createEngine, launchKey } from '../lib/engine.js';
+import { launchArgs, launchFlags, camoufoxOptions, engineKind, createEngine, launchKey, camoufoxContextOptions } from '../lib/engine.js';
 import { defaultProfile, applyProfilePatch } from '../lib/profile.js';
 
 const SI = ['--disable-features=IsolateOrigins,site-per-process', '--disable-site-isolation-trials'];
@@ -395,5 +395,42 @@ test('engine.unitWithProfile: контекст основного браузер
   assert.equal(w.launches.length, 1, 'той самий браузер');
   assert.equal(profile.fingerprint, null, 'застосований профіль не змінено');
   await assert.rejects(e.unitWithProfile({ ...profile, launch: { ...profile.launch, engine: 'camoufox' } }), /окремий браузер/);
+  await e.close();
+});
+
+test('camoufoxContextOptions: нічого не задано → undefined (newContext() без опцій, як було); інакше — лише задане', () => {
+  assert.equal(camoufoxContextOptions(), undefined);
+  assert.equal(camoufoxContextOptions(null, {}), undefined);
+  const st = { cookies: [{ name: 'a' }], origins: [] };
+  assert.deepEqual(camoufoxContextOptions(st), { storageState: st });
+  assert.deepEqual(camoufoxContextOptions(null, { viewport: { width: 1500, height: 1125 }, deviceScaleFactor: 2 }),
+    { viewport: { width: 1500, height: 1125 }, deviceScaleFactor: 2 });
+  assert.deepEqual(camoufoxContextOptions(st, { deviceScaleFactor: 2 }), { storageState: st, deviceScaleFactor: 2 });
+});
+
+test('engine Camoufox: пул — newContext() без опцій (навіть з DPR у fingerprint профілю); viewport/DPR + сесія — лише в окремому контексті, пул не зачеплено', async () => {
+  const w = fakeWorld();
+  const st = { cookies: [{ name: 'sid', value: 'x', domain: 'g.test', path: '/' }], origins: [] };
+  const profile = applyProfilePatch(defaultProfile(), { launch: { engine: 'camoufox' }, fingerprint: { deviceScaleFactor: 2, userAgent: 'Mac' } }).profile;
+  const e = createEngine({ getProfile: () => profile, launchers: w.launchers, poolSize: 2, log: quiet });
+  await e.refillPool();
+  await e.whenPoolReady();
+  const b = w.browsers[0];
+  assert.equal(b.ctxs.length, 2);
+  assert.ok(b.ctxs.every((c) => c.o === undefined), 'контексти пулу — без опцій');
+
+  const plain = await e.unitWithProfile(profile);
+  assert.equal(plain.context.o, undefined, 'без явного view/сесії — як раніше');
+
+  const u = await e.unitWithProfile({ ...profile, storageState: st }, { camoufoxState: true, camoufoxView: { viewport: { width: 1500, height: 1125 }, deviceScaleFactor: 2 } });
+  assert.deepEqual(u.context.o, { storageState: st, viewport: { width: 1500, height: 1125 }, deviceScaleFactor: 2 });
+  assert.equal(u.fromPool, false);
+  assert.equal(u.context.inits.length, 0, 'Camoufox — без наших JS-патчів');
+  await e.closeUnit(u);
+  assert.equal(e.poolStats().ready, 2, 'пул не витрачено');
+  const fromPool = await e.takeUnit();
+  assert.equal(fromPool.fromPool, true);
+  assert.equal(fromPool.context.o, undefined, 'пул лишився без опцій');
+  assert.equal(w.launches.length, 1);
   await e.close();
 });

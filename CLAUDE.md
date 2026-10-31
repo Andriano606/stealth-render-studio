@@ -281,6 +281,22 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
   основного браузера, Camoufox теж отримує storageState: `newUnitOn(..., {camoufoxState})`, `unitSource(..., {withState})`
   → не пул). `close_browser {saveAs}` — зберегти й закрити; `list_sessions` (лише кількість і домени) / `delete_session`.
   Перевірено наживо (2026-10-25): видимий Chrome і Camoufox → cookie + localStorage переносяться в `open_page` обох рушіїв.
+- **Розмір вікна і DPR для Camoufox** (`fingerprint.viewport {width,height}` / `fingerprint.deviceScaleFactor` у
+  `open_page`/`run_scenario`/`open_browser`): Juggler застосовує їх нативно як опції `newContext` (перевірено 2026-10-31:
+  1500×1125 @2× → `innerWidth` 1500, `devicePixelRatio` 2, `min-resolution: 2dppx`, скрин 3000×2250; Google Sheets із
+  сесією «google-sheets» — таблиця). `viewOf` бере їх ЛИШЕ з запиту (валідація: цілі 200–8000 CSS px, DPR 0,5–4); fingerprint
+  ПРОФІЛЮ для Camoufox, як і раніше, не діє (це Chromium-налаштування, у UI для Camoufox приховане; у профілі користувача
+  там `deviceScaleFactor: 2` з Mac — застосування змінило б кожен Camoufox-прогін). Без них — `newContext()` без опцій
+  (1280×720 @1×, антидетект/Cloudflare-калібрування не змінюються). `camoufoxContextOptions(storageState, view)` →
+  `newUnitOn(..., {camoufoxView})`; `unitSource(..., {withView})` → окремий контекст, НЕ пул (контексти пулу Camoufox —
+  без опцій і лишаються такими). Решта полів fingerprint із запиту Camoufox не застосовує — про це рядок у лозі.
+  Лог конфігу (лише MCP; UI-логи без змін): «🖥 Вікно Camoufox: viewport 1500×1125, DPR 2× — з запиту … → скрин
+  viewport 3000×2250 px» / «дефолт рушія 1280×720, DPR 1×»; у заголовку — «Вікно: …» ВИМІРЯНЕ на сторінці. Видиме вікно:
+  view → фіксований viewport + DPR; DPR без viewport не застосовується (Playwright не приймає DPR з `viewport:null`).
+  Full-скрин обрізається в пікселях картинки (`fullShotMaxCss`: 8000 / DPR CSS px).
+  **`launch.camoufoxScreen`/`camoufoxViewport`/`camoufoxOs`/`firefoxViewport`/`firefoxPath`/…** у `profile.json` —
+  залишки іншої версії: їх немає в жодній гілці/історії git, код і конфігуратор їх не читають; `mergeLoadedProfile`
+  просто зберігає невідомі ключі `launch`. Не підключено й не видаляється автоматично (щоб не переписувати профіль).
 - **Конфіг лише на один виклик** (`resolveMcpProfile`, чиста): застосований → пресет (`presetBody` — cookies/
   проксі з пресета не беруться) → engine → прапорці (невідомий/не boolean → помилка з переліком) → fingerprint
   (зливається; `null` — без) → proxy (`false` — напряму, рядок — `normalizeProxy`) → `cookies:false`. Профіль
@@ -296,7 +312,8 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
   глобальний парсер `/mcp` пропускає), непідтримувана `MCP-Protocol-Version` → 400, GET/DELETE → 405. Відʼєднання
   клієнта → `signal` → контекст закривається, слот семафора звільняється.
 - **Тести:** `test/mcp.test.js` (протокол, чиста логіка, тули на фейках, scratch), `test/mcpLogin.test.js` (видимий
-  браузер, сховище сесій, повний цикл входу на фейках), `test/mcp.routes.test.js` (HTTP
+  браузер, сховище сесій, повний цикл входу на фейках; Camoufox viewport/DPR: `viewOf`, опції `newContext` разом зі
+  storageState, пул без опцій, лог і вимір), `test/engine.test.js` (`camoufoxContextOptions`, пул Camoufox не зачеплено), `test/mcp.routes.test.js` (HTTP
   через `createApp`), `test/engine.test.js` (`launchKey`, `unitWithProfile`), `test/shell.test.js` (команда/JSON у UI).
 
 ## Конфігуратор, опції та пресети

@@ -10,7 +10,9 @@ import {
   validateSessionName, sessionFile, sessionSummary, mergeStorageState, createSavedSessions,
 } from '../lib/savedSessions.js';
 import { createInteractiveBrowsers, headfulProfile, headfulContextOptions } from '../lib/interactive.js';
-import { createMcpTools, resolveMcpProfile, unitSource } from '../lib/mcpTools.js';
+import { createMcpTools, resolveMcpProfile, unitSource, viewOf, viewLine, fullShotMaxCss } from '../lib/mcpTools.js';
+import { camoufoxWindowLines, describeContextLogs } from '../lib/logs.js';
+import { newUnitOn, engineKind } from '../lib/engine.js';
 import { createScratchBrowsers } from '../lib/scratch.js';
 import { defaultProfile } from '../lib/profile.js';
 
@@ -82,7 +84,14 @@ function fakeWorld() {
       async screenshot() { return Buffer.from('IMG'); },
       async waitForLoadState() {}, async waitForTimeout() {},
       async content() { return '<html></html>'; },
-      async evaluate() { return false; },
+      // innerWidth/devicePixelRatio — з опцій контексту (як у справжньому браузері; дефолт Playwright 1280×720 @1).
+      async evaluate(fn) {
+        if (String(fn).includes('innerWidth')) {
+          const vp = ctx.o && ctx.o.viewport;
+          return { w: vp ? vp.width : 1280, h: vp ? vp.height : 720, dpr: (ctx.o && ctx.o.deviceScaleFactor) || 1 };
+        }
+        return false;
+      },
       frames() { return [{ evaluate: async (fn) => (String(fn).includes('location.href') ? { url: pg._url, text: 'Welcome, Andrii' } : 100) }]; },
       mainFrame() { return pg.frames()[0]; },
       mouse: { async move() {}, async wheel() {} },
@@ -191,11 +200,18 @@ function setup({ engineKindApplied = 'chromium' } = {}) {
   const engineCalls = [];
   const engine = {
     engineReady: () => true,
-    async takeUnit() { engineCalls.push(['take']); const b = await w.launchers.chromium({}, true); const ctx = await b.newContext({}); return { context: ctx, page: await ctx.newPage(), fromPool: true }; },
+    // Контексти — справжнім newUnitOn на фейковому браузері потрібного рушія (як у lib/engine.js).
+    async takeUnit() {
+      engineCalls.push(['take']);
+      const kind = engineKind(applied);
+      return { ...(await newUnitOn(await w.launchers[kind]({}, true), kind, applied)), fromPool: true };
+    },
     async unitWithProfile(p, opts) {
       engineCalls.push(['with', p.storageState, opts]);
-      const ctx = await (await w.launchers.chromium({}, true)).newContext({ storageState: p.storageState });
-      return { context: ctx, page: await ctx.newPage(), fromPool: false };
+      const kind = engineKind(p);
+      const u = await newUnitOn(await w.launchers[kind]({}, true), kind, p, opts);
+      engineCalls.lastContext = u.context;
+      return { ...u, fromPool: false };
     },
     async closeUnit() {},
     async drainPool() { engineCalls.push(['drain']); },
@@ -208,7 +224,7 @@ function setup({ engineKindApplied = 'chromium' } = {}) {
     sem: { acquire: async () => {}, release() {} }, profileStore: store, log: quiet,
   }).map((t) => [t.name, t]));
   const text = async (name, args) => { const r = await tools[name].handler(args || {}, {}); return typeof r === 'string' ? r : r.content[0].text; };
-  return { w, tools, text, store, engineCalls, savedSessions, interactive, getApplied: () => applied };
+  return { w, tools, text, store, engineCalls, savedSessions, interactive, getApplied: () => applied, setApplied: (p) => { applied = p; } };
 }
 
 test('цикл входу: open_browser → status → save_session → open_page{session} → close_browser{saveAs}; профіль без змін', async () => {
@@ -243,7 +259,7 @@ test('цикл входу: open_browser → status → save_session → open_pag
   assert.match(page.content[0].text, /конфіг: застосований конфіг \+ сесія «Site»/);
   const call = engineCalls.find((c) => c[0] === 'with');
   assert.equal(call[1].cookies.length, 3, 'контекст отримав cookies сесії');
-  assert.deepEqual(call[2], { camoufoxState: true });
+  assert.deepEqual(call[2], { camoufoxState: true, camoufoxView: null });
 
   await assert.rejects(tools.open_page.handler({ url: 'https://x.test', session: 'nope' }, {}), /Сесію «nope» не знайдено\. Збережені: «Site»/);
 
@@ -288,4 +304,118 @@ test('open_browser: недоступні видимі браузери / нем�
     engine: {}, sem: {}, profileStore: { get: defaultProfile }, interactive: createInteractiveBrowsers({ launchers, log: quiet }),
   }).map((x) => [x.name, x]));
   await assert.rejects(t.open_browser.handler({}), /не відкрився: .*немає графічного дисплея/);
+});
+
+// ---------- Camoufox: розмір вікна і DPR із запиту ----------
+const VIEW = { viewport: { width: 1500, height: 1125 }, deviceScaleFactor: 2 };
+const camoufoxProfile = (extra = {}) => ({ ...defaultProfile(), launch: { ...defaultProfile().launch, engine: 'camoufox' }, ...extra });
+
+test('viewOf: лише явні viewport/DPR із запиту, з валідацією', () => {
+  assert.equal(viewOf(undefined), null);
+  assert.equal(viewOf(null), null);
+  assert.equal(viewOf({ userAgent: 'x' }), null);
+  assert.deepEqual(viewOf({ viewport: { width: 1500, height: 1125, extra: 1 }, deviceScaleFactor: 2, locale: 'uk' }), VIEW);
+  assert.deepEqual(viewOf({ deviceScaleFactor: 1.5 }), { deviceScaleFactor: 1.5 });
+  assert.throws(() => viewOf({ viewport: { width: 1500 } }), /viewport: очікується \{width, height\}/);
+  assert.throws(() => viewOf({ viewport: { width: 1500.5, height: 900 } }), /цілі CSS px/);
+  assert.throws(() => viewOf({ viewport: { width: 100, height: 900 } }), /від 200 до 8000/);
+  assert.throws(() => viewOf({ viewport: [1500, 1125] }), /viewport/);
+  assert.throws(() => viewOf({ deviceScaleFactor: '2' }), /deviceScaleFactor: очікується число/);
+  assert.throws(() => viewOf({ deviceScaleFactor: 5 }), /від 0\.5 до 4/);
+});
+
+test('resolveMcpProfile: view лише з запиту (DPR з fingerprint профілю НЕ береться); ignoredFp для Camoufox; невалідне → помилка', () => {
+  const applied = camoufoxProfile({ fingerprint: { deviceScaleFactor: 2, userAgent: 'Mac' } });
+  assert.equal(resolveMcpProfile(applied, {}).view, null, 'профіль має DPR 2, але без запиту — дефолт рушія');
+  const r = resolveMcpProfile(applied, { fingerprint: { ...VIEW, userAgent: 'X', locale: 'uk' } });
+  assert.deepEqual(r.view, VIEW);
+  assert.deepEqual(r.ignoredFp, ['userAgent', 'locale']);
+  const c = resolveMcpProfile(defaultProfile(), { fingerprint: { ...VIEW, userAgent: 'X' } });
+  assert.deepEqual(c.ignoredFp, [], 'Chromium бере всі поля');
+  assert.deepEqual(c.profile.fingerprint.viewport, VIEW.viewport, 'Chromium: viewport через fingerprint → contextOptions');
+  assert.throws(() => resolveMcpProfile(applied, { fingerprint: { deviceScaleFactor: 9 } }), /deviceScaleFactor/);
+  assert.throws(() => resolveMcpProfile(defaultProfile(), { fingerprint: { viewport: { width: 'a', height: 1 } } }), /viewport/);
+});
+
+test('unitSource: Camoufox із view — окремий контекст (не пул); без нього — пул; інший запуск — тимчасовий браузер', () => {
+  const cfx = camoufoxProfile();
+  assert.equal(unitSource(cfx, cfx), 'pool');
+  assert.equal(unitSource(cfx, cfx, { withView: true }), 'main');
+  assert.equal(unitSource(cfx, defaultProfile(), { withView: true }), 'scratch');
+});
+
+test('рядки логу: camoufoxWindowLines і describeContextLogs (UI-лог без рядка, як раніше)', () => {
+  assert.equal(camoufoxWindowLines(null)[0].text, '🖥 Вікно Camoufox: дефолт рушія 1280×720, DPR 1× (контекст без опцій)');
+  assert.equal(camoufoxWindowLines(VIEW)[0].text, '🖥 Вікно Camoufox: viewport 1500×1125, DPR 2× — з запиту, опції контексту Juggler → скрин viewport 3000×2250 px');
+  assert.match(camoufoxWindowLines({ deviceScaleFactor: 2 })[0].text, /viewport 1280×720 \(дефолт\), DPR 2× .*2560×1440 px/);
+  assert.match(camoufoxWindowLines({ viewport: { width: 800, height: 600 } })[0].text, /800×600, DPR 1× \(дефолт\).*800×600 px/);
+  assert.match(camoufoxWindowLines(null, { headful: true })[0].text, /розмір реального вікна/);
+  assert.match(camoufoxWindowLines({ deviceScaleFactor: 2 }, { headful: true })[0].text, /DPR 2× НЕ застосовано/);
+  const ig = camoufoxWindowLines(VIEW, { ignoredFp: ['userAgent'] });
+  assert.match(ig[1].text, /userAgent.*Camoufox не застосовує/);
+  const cfx = camoufoxProfile();
+  assert.ok(!describeContextLogs(cfx, {}).some((l) => l.text.startsWith('🖥')), 'UI-лог без змін');
+  assert.ok(describeContextLogs(cfx, { view: null }).some((l) => l.text.startsWith('🖥 Вікно Camoufox: дефолт')));
+  assert.ok(!describeContextLogs(defaultProfile(), { view: VIEW }).some((l) => l.text.startsWith('🖥')), 'Chromium — без рядка');
+  assert.equal(viewLine({ w: 1500, h: 1125, dpr: 2 }), 'Вікно: 1500×1125 CSS px, DPR 2 → скрин viewport 3000×2250 px (виміряно на сторінці)');
+  assert.equal(viewLine(null), 'Вікно: не виміряно');
+  assert.equal(fullShotMaxCss(2), 4000);
+  assert.equal(fullShotMaxCss(undefined), 8000);
+});
+
+test('headfulContextOptions з view: фіксований viewport + DPR; DPR без viewport не застосовується (null-viewport)', () => {
+  const p = { ...defaultProfile(), fingerprint: { userAgent: 'UA', deviceScaleFactor: 3 } };
+  assert.deepEqual(headfulContextOptions(p, 'camoufox', STATE, VIEW), { ...VIEW, storageState: STATE });
+  assert.deepEqual(headfulContextOptions(p, 'camoufox', null, { deviceScaleFactor: 2 }), { viewport: null });
+  const c = headfulContextOptions(p, 'chromium', null, VIEW);
+  assert.deepEqual(c.viewport, VIEW.viewport);
+  assert.equal(c.deviceScaleFactor, 2);
+  assert.equal(c.userAgent, 'UA');
+  const c2 = headfulContextOptions(p, 'chromium', null, null);
+  assert.equal(c2.viewport, null);
+  assert.equal('deviceScaleFactor' in c2, false, 'DPR профілю з null-viewport Playwright не приймає');
+});
+
+test('open_page Camoufox + session + viewport/DPR: опції в newContext разом зі storageState, лог і вимір; без них — пул без опцій', async () => {
+  const { tools, engineCalls, savedSessions, setApplied, getApplied } = setup({ engineKindApplied: 'camoufox' });
+  setApplied({ ...getApplied(), fingerprint: { deviceScaleFactor: 2, userAgent: 'Mac' } }); // як у профілі користувача
+  savedSessions.save({ name: 'google-sheets', storageState: STATE });
+  const before = JSON.stringify(getApplied());
+
+  const r = await tools.open_page.handler({ url: 'https://docs.test/sheet', session: 'google-sheets', content: 'none', screenshot: 'viewport', fingerprint: { ...VIEW, userAgent: 'X' } }, {});
+  const call = engineCalls.find((c) => c[0] === 'with');
+  assert.deepEqual(call[2], { camoufoxState: true, camoufoxView: VIEW });
+  assert.deepEqual(engineCalls.lastContext.o, { storageState: STATE, ...VIEW }, 'сесія і розмір — в одному newContext');
+  const head = r.content[0].text;
+  assert.match(head, /Браузер: основний браузер, окремий контекст/);
+  assert.match(head, /Вікно: 1500×1125 CSS px, DPR 2 → скрин viewport 3000×2250 px/);
+  assert.match(head, /🖥 Вікно Camoufox: viewport 1500×1125, DPR 2× — з запиту/);
+  assert.match(head, /поля fingerprint з запиту \(userAgent\) Camoufox не застосовує/);
+  assert.equal(r.content[1].type, 'image');
+  assert.equal(JSON.stringify(getApplied()), before, 'профіль не змінено');
+  assert.equal(savedSessions.get('google-sheets').storageState.cookies.length, 3, 'сесію не змінено');
+
+  engineCalls.length = 0;
+  const plain = await tools.open_page.handler({ url: 'https://docs.test/sheet', content: 'none' }, {});
+  assert.deepEqual(engineCalls.map((c) => c[0]), ['take'], 'без view і сесії — теплий пул');
+  assert.match(plain.content[0].text, /Вікно: 1280×720 CSS px, DPR 1/);
+  assert.match(plain.content[0].text, /🖥 Вікно Camoufox: дефолт рушія 1280×720/);
+
+  engineCalls.length = 0;
+  await tools.open_page.handler({ url: 'https://docs.test/sheet', content: 'none', fingerprint: VIEW }, {});
+  assert.deepEqual(engineCalls[0][2], { camoufoxState: false, camoufoxView: VIEW });
+  assert.deepEqual(engineCalls.lastContext.o, VIEW, 'без сесії — лише розмір, без storageState');
+});
+
+test('open_browser Camoufox з viewport/DPR і сесією: видиме вікно отримує їх; лог чесний', async () => {
+  const { w, text, savedSessions } = setup({ engineKindApplied: 'camoufox' });
+  savedSessions.save({ name: 's', storageState: STATE });
+  const out = await text('open_browser', { session: 's', fingerprint: VIEW });
+  const ctx = w.browsers[w.browsers.length - 1].ctxs[0];
+  assert.deepEqual(ctx.o, { ...VIEW, storageState: STATE });
+  assert.match(out, /🖥 Вікно Camoufox: viewport 1500×1125, DPR 2×/);
+  await text('close_browser', {});
+  const out2 = await text('open_browser', { fingerprint: { deviceScaleFactor: 2 } });
+  assert.deepEqual(w.browsers[w.browsers.length - 1].ctxs[0].o, { viewport: null });
+  assert.match(out2, /DPR 2× НЕ застосовано/);
 });
