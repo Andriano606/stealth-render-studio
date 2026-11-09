@@ -1,4 +1,4 @@
-name: stealth-cdt
+name: stealth-render-studio
 
 # Shared dev infrastructure for ALL Stealth Render Studio Conductor workspaces.
 # Per-workspace isolation is by database name (stealth_dev_<slug>), NOT by
@@ -12,7 +12,7 @@ name: stealth-cdt
 services:
   postgres:
     image: postgres:17
-    container_name: stealth-cdt-postgres
+    container_name: stealth-render-studio-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: stealth

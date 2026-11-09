@@ -39,6 +39,7 @@ def main
   unless ENV['CONDUCTOR_SKIP_DB'] == '1'
     ensure_infra!
     created = ensure_database!
+    ensure_database!(SESSIONS_DB)
     seed = ENV['CONDUCTOR_SEED_FROM'].to_s
     if !seed.empty? && created
       seed_database_from!(seed)

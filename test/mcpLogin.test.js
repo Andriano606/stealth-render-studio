@@ -14,6 +14,8 @@ import { createMcpTools, resolveMcpProfile, unitSource, viewOf, viewLine, fullSh
 import { camoufoxWindowLines, describeContextLogs } from '../lib/logs.js';
 import { newUnitOn, engineKind } from '../lib/engine.js';
 import { createScratchBrowsers } from '../lib/scratch.js';
+import { createSessionsRepo, initSessionsDb } from '../lib/db.js';
+import { createSessionVault, cleanSessionMeta, siteFromUrl, filterSessions } from '../lib/savedSessions.js';
 import { defaultProfile } from '../lib/profile.js';
 
 const quiet = { log() {}, error() {} };
@@ -249,7 +251,7 @@ test('цикл входу: open_browser → status → save_session → open_pag
   assert.equal(st.content[2].type, 'image');
 
   const saved = await text('save_session', { name: 'Site' });
-  assert.match(saved, /Сесію «Site» збережено \(b1, chromium\): 3 cookies \(cdn\.other\.test, site\.test\); localStorage\/IndexedDB: https:\/\/site\.test\./);
+  assert.match(saved, /Сесію «Site» збережено у файл на сервері — Postgres недоступний \(b1, chromium, сайт: site\.test\): 3 cookies \(cdn\.other\.test, site\.test\); localStorage\/IndexedDB: https:\/\/site\.test\./);
   assert.deepEqual(ctx.lastStateOpt, { indexedDB: true });
   assert.equal(savedSessions.get('site').url, 'https://site.test/home');
   assert.equal(JSON.stringify(getApplied()), before, 'без applyToProfile профіль не змінено');
@@ -418,4 +420,149 @@ test('open_browser Camoufox з viewport/DPR і сесією: видиме вік
   const out2 = await text('open_browser', { fingerprint: { deviceScaleFactor: 2 } });
   assert.deepEqual(w.browsers[w.browsers.length - 1].ctxs[0].o, { viewport: null });
   assert.match(out2, /DPR 2× НЕ застосовано/);
+});
+
+// ---------- Спільні сесії: Postgres, опис для агентів, рушій із сесії ----------
+// Фейк pool.query: тримає рядки saved_sessions, повторює COALESCE-семантику upsert.
+function fakeSessionsPool() {
+  const rows = new Map();
+  return {
+    rows,
+    async query(sql, p) {
+      if (/^SELECT \* FROM saved_sessions ORDER/.test(sql)) return { rows: [...rows.values()].sort((a, b) => a.key.localeCompare(b.key)) };
+      if (/^SELECT \* FROM saved_sessions WHERE/.test(sql)) return { rows: rows.has(p[0]) ? [rows.get(p[0])] : [] };
+      if (/^INSERT INTO saved_sessions/.test(sql)) {
+        const old = rows.get(p[0]);
+        const row = { key: p[0], name: p[1], account: p[2] ?? old?.account ?? null, site: p[3] ?? old?.site ?? null, description: p[4] ?? old?.description ?? null,
+          url: p[5], engine: p[6], storage_state: p[7], saved_at: p[8] || new Date('2026-11-09T10:00:00Z') };
+        rows.set(p[0], row);
+        return { rows: [row] };
+      }
+      if (/^DELETE FROM saved_sessions/.test(sql)) { const had = rows.delete(p[0]); return { rows: had ? [{ key: p[0] }] : [] }; }
+      throw new Error('неочікуваний SQL: ' + sql);
+    },
+  };
+}
+
+test('createSessionsRepo: збереження/читання, без регістру, опис лишається при перезаписі, \\u0000 у cookie не ламає', async () => {
+  const pool = fakeSessionsPool();
+  const r = createSessionsRepo(pool);
+  const st = { cookies: [{ name: 'a', value: 'x\u0000y', domain: 'ali.test', path: '/' }], origins: [] };
+  const saved = await r.save({ name: ' Логін  Андрій ', storageState: st, url: 'https://ali.test/', engine: 'camoufox', account: 'Андрій', site: 'ali.test', description: 'd' });
+  assert.equal(saved.name, 'Логін Андрій');
+  assert.equal(saved.savedAt, '2026-11-09T10:00:00.000Z');
+  assert.equal(typeof pool.rows.get('логін андрій').storage_state, 'string', 'TEXT, не JSONB');
+  assert.deepEqual((await r.get('ЛОГІН АНДРІЙ')).storageState, st);
+  const again = await r.save({ name: 'логін андрій', storageState: { cookies: [], origins: [] }, engine: 'chromium' });
+  assert.equal(again.account, 'Андрій', 'без поля — попереднє');
+  assert.equal(again.engine, 'chromium');
+  assert.equal((await r.list()).length, 1);
+  assert.equal((await r.save({ name: 'логін андрій', storageState: st, description: '' })).description, null, "'' очищає");
+  assert.equal(await r.get('nope'), null);
+  assert.equal(await r.get(''), null);
+  await assert.rejects(r.save({ name: '', storageState: st }), /порожньою/);
+  assert.equal(await r.remove('Логін андрій'), true);
+  assert.equal(await r.remove('Логін андрій'), false);
+});
+
+test('initSessionsDb: створює таблицю; недоступна БД → null (далі файли), пул закрито', async () => {
+  const sql = [];
+  class OkPool { on() {} async query(s) { sql.push(s); return { rows: [] }; } async end() {} }
+  const db = await initSessionsDb('postgres://u:SECRET@h/x', { Pool: OkPool, log: quiet });
+  assert.match(sql[0], /CREATE TABLE IF NOT EXISTS saved_sessions/);
+  assert.equal(db.backend(), 'postgres');
+  let ended = 0;
+  class BadPool { on() {} async query() { throw new Error('down'); } async end() { ended++; } }
+  assert.equal(await initSessionsDb('postgres://x', { Pool: BadPool, log: quiet }), null);
+  assert.equal(ended, 1);
+});
+
+test('createSessionVault: Postgres, щойно підключено; файли — не запасна копія (видалене не воскресає)', async () => {
+  const files = createSavedSessions(path.join(tmpDir(), 's'));
+  files.save({ name: 'old', storageState: STATE });
+  let repo = null;
+  const v = createSessionVault({ getRepo: () => repo, files });
+  assert.equal(v.backend(), 'files');
+  assert.equal((await v.get('old')).name, 'old');
+  repo = createSessionsRepo(fakeSessionsPool());
+  assert.equal(v.backend(), 'postgres');
+  assert.equal(await v.get('old'), null, 'файл не підміщується');
+  await v.save({ name: 'new', storageState: STATE });
+  assert.deepEqual((await v.list()).map((x) => x.name), ['new']);
+  assert.equal(files.get('new'), null, 'секрети не дублюються у файли');
+});
+
+test('cleanSessionMeta, siteFromUrl, filterSessions, довгі кириличні назви файлів', () => {
+  assert.deepEqual(cleanSessionMeta({ account: '  Андрій   Кулуєв ', site: undefined, description: '' }), { meta: { account: 'Андрій Кулуєв', description: '' } });
+  assert.match(cleanSessionMeta({ account: 5 }).error, /account/);
+  assert.match(cleanSessionMeta({ description: 'x'.repeat(1001) }).error, /1000/);
+  assert.equal(siteFromUrl('https://www.aliexpress.com/x?y=1'), 'aliexpress.com');
+  assert.equal(siteFromUrl('about:blank'), null);
+  assert.equal(siteFromUrl(null), null);
+  const rec = { name: 'Логін', account: 'Андрій Кулуєв', site: 'aliexpress.com', description: 'основний', storageState: STATE };
+  for (const q of ['ALIEXPRESS', 'андрій', 'основний', 'cdn.other', '', undefined]) assert.deepEqual(filterSessions([rec], q), [rec], String(q));
+  assert.deepEqual(filterSessions([rec], 'temu'), []);
+  const g = { cookies: [{ name: 'a', domain: 'accounts.google.com' }], origins: [] };
+  const ali = { name: 'ali', site: 'aliexpress.com', storageState: g }, sheets = { name: 'sheets', site: 'docs.google.com', storageState: g };
+  assert.deepEqual(filterSessions([ali, sheets], 'google'), [sheets], 'домени cookies не перекривають прямий збіг');
+  assert.deepEqual(filterSessions([ali, { name: 'x', storageState: STATE }], 'accounts.google'), [ali], 'домен — запасний шлях');
+  const a = sessionFile('я'.repeat(80)), b = sessionFile('я'.repeat(79) + 'ю');
+  assert.ok(Buffer.byteLength(a) <= 255);
+  assert.notEqual(a, b);
+  assert.equal(sessionFile('я'.repeat(41)), encodeURIComponent('я'.repeat(41)) + '.json', 'наявні файли не перейменовуються');
+  const dir = path.join(tmpDir(), 's');
+  createSavedSessions(dir).save({ name: 'я'.repeat(80), storageState: STATE });
+  assert.equal(createSavedSessions(dir).get('я'.repeat(80)).name, 'я'.repeat(80));
+});
+
+test('resolveMcpProfile: рушій із сесії; явний engine/пресет — важливіші, але з попередженням', () => {
+  const session = { name: 'g', engine: 'camoufox', storageState: STATE };
+  const applied = defaultProfile();
+  const auto = resolveMcpProfile(applied, {}, [], { session });
+  assert.equal(engineKind(auto.profile), 'camoufox');
+  assert.match(auto.label, /engine=camoufox \(із сесії\)/);
+  assert.deepEqual(auto.warnings, []);
+  assert.equal(applied.launch.engine, 'chromium', 'профіль не змінено');
+  const explicit = resolveMcpProfile(applied, { engine: 'chromium' }, [], { session });
+  assert.equal(engineKind(explicit.profile), 'chromium');
+  assert.match(explicit.warnings[0], /збережено в camoufox, а запит іде через chromium/);
+  const pr = [{ id: 1, name: 'P', body: { launch: { engine: 'chromium' } } }, { id: 2, name: 'Q', body: { stealth: { webdriver: false } } }];
+  assert.equal(engineKind(resolveMcpProfile(applied, { preset: 'P' }, pr, { session }).profile), 'chromium');
+  assert.equal(engineKind(resolveMcpProfile(applied, { preset: 'Q' }, pr, { session }).profile), 'camoufox', 'пресет без рушія не заважає');
+  assert.equal(engineKind(resolveMcpProfile(applied, {}, [], { session: { name: 'x', engine: null, storageState: STATE } }).profile), 'chromium');
+});
+
+test('тули на Postgres-сховищі: save_session з описом → list_sessions query → інший агент відкриває, бачачи ті самі дані', async () => {
+  const pool = fakeSessionsPool();
+  const vault = createSessionVault({ getRepo: () => createSessionsRepo(pool), files: createSavedSessions(path.join(tmpDir(), 's')) });
+  const w = fakeWorld();
+  const applied = defaultProfile();
+  const mk = () => Object.fromEntries(createMcpTools({
+    engine: { engineReady: () => true, async closeUnit() {} },
+    scratch: createScratchBrowsers({ launchers: w.launchers, log: quiet }), interactive, savedSessions: vault,
+    sem: { acquire: async () => {}, release() {} }, profileStore: { get: () => applied }, log: quiet,
+  }).map((t) => [t.name, t]));
+  const interactive = createInteractiveBrowsers({ launchers: w.launchers, log: quiet });
+  const agentA = mk();
+  await agentA.open_browser.handler({ engine: 'camoufox', url: 'https://www.aliexpress.test/home' });
+  w.browsers[0].ctxs[0].cookies_ = STATE.cookies;
+  const saved = await agentA.save_session.handler({ name: 'логін андрій кулуєв сесія в аліекспрес', account: 'Андрій Кулуєв', description: 'основний акаунт' });
+  assert.match(saved, /збережено у Postgres, бачать усі агенти .*акаунт: Андрій Кулуєв, сайт: aliexpress\.test/);
+  await assert.rejects(agentA.save_session.handler({ name: 'x', account: 5 }), /account/);
+
+  const agentB = mk(); // інший агент — нічого спільного, крім сховища
+  const found = JSON.parse(await agentB.list_sessions.handler({ query: 'aliexpress' }));
+  assert.equal(found.length, 1);
+  assert.deepEqual([found[0].account, found[0].site, found[0].engine, found[0].cookies], ['Андрій Кулуєв', 'aliexpress.test', 'camoufox', 3]);
+  assert.ok(!JSON.stringify(found).includes('SECRET'), 'значення cookies не віддаються');
+  assert.match(await agentB.list_sessions.handler({ query: 'temu' }), /сесій немає.*аліекспрес/);
+
+  const r = await agentB.open_page.handler({ url: 'https://www.aliexpress.test/orders', session: found[0].name, content: 'none' }, {});
+  assert.match(r.content[0].text, /Рушій: Camoufox .*engine=camoufox \(із сесії\) \+ сесія «логін андрій кулуєв сесія в аліекспрес»/);
+  const ctx = w.browsers[w.browsers.length - 1].ctxs.at(-1);
+  assert.deepEqual(ctx.o.storageState.cookies.map((c) => c.value), STATE.cookies.map((c) => c.value), 'контекст отримав cookies сесії');
+
+  assert.match(await agentB.delete_session.handler({ name: found[0].name }), /видалено/);
+  assert.match(await agentA.list_sessions.handler({}), /Збережених сесій немає/);
+  await interactive.closeAll();
 });

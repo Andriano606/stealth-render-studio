@@ -28,7 +28,7 @@ npm start                   # http://localhost:3000
   `postgres://<user>@localhost:5432/playwright_demo`. Перевизначається через `DATABASE_URL`.
   Якщо БД недоступна — сценарії живуть у пам'яті процесу сервера (до його перезапуску).
 - Змінні оточення (`lib/config.js`): `PORT` (3000), `DATABASE_URL`, `PROFILE_FILE`
-  (`./profile.json`), `UPLOAD_DIR` (`./uploads`), `SESSIONS_DIR` (`./sessions` — сесії входу MCP), `HOST` (`127.0.0.1`), `ALLOWED_HOSTS`.
+  (`./profile.json`), `UPLOAD_DIR` (`./uploads`), `SESSIONS_DATABASE_URL` (спільна база сесій входу MCP; інакше `DATABASE_URL`), `SESSIONS_DIR` (`./sessions` — сесії, якщо Postgres недоступний), `HOST` (`127.0.0.1`), `ALLOWED_HOSTS`.
 - **Безпека локального сервісу:** сервер слухає ЛИШЕ `127.0.0.1` і перевіряє `Host`
   (`lib/guard.js`: лише localhost/127.0.0.1/[::1] — захист від DNS-rebinding) та `Origin`
   змінних запитів (крос-сайтовий POST → 403). `/upload` приймає лише
@@ -274,13 +274,20 @@ claude mcp add --transport http --scope user stealth-render http://localhost:300
   `deviceScaleFactor`, наш stealth-скрипт для Chromium; max 2, живе до `close_browser` / закриття вікна / 30 хв без
   звернень MCP / SIGTERM; без дисплея → людська помилка) → користувач логіниться руками → `browser_status` (вкладки,
   cookies за доменами без значень, опц. текст/скрин активної вкладки) → `save_session {name, applyToProfile?}`
-  (`context.storageState({indexedDB:true})` → `lib/savedSessions.js`: файл `SESSIONS_DIR`/`<назва без регістру>.json`,
-  тека `sessions/` у .gitignore, режим 0600; та сама назва — перезапис; `applyToProfile` — `mergeStorageState` у
+  (`context.storageState({indexedDB:true})` → таблиця `saved_sessions`, див. «Спільні сесії» нижче; та сама назва — перезапис; `applyToProfile` — `mergeStorageState` у
   cookies профілю + `profile.json` + `drainPool`; у Camoufox-профілі пул cookies не бере → підказка). Далі
   `session:"назва"` в `open_page`/`run_scenario`/`open_browser` (перекриває cookies профілю; Chromium — контекст
   основного браузера, Camoufox теж отримує storageState: `newUnitOn(..., {camoufoxState})`, `unitSource(..., {withState})`
   → не пул). `close_browser {saveAs}` — зберегти й закрити; `list_sessions` (лише кількість і домени) / `delete_session`.
   Перевірено наживо (2026-10-25): видимий Chrome і Camoufox → cookie + localStorage переносяться в `open_page` обох рушіїв.
+- **Спільні сесії (Postgres):** `saved_sessions` (`key` = назва без регістру, `name`, `account`, `site`, `description`, `url`,
+  `engine`, `storage_state` — TEXT із JSON, бо JSONB не приймає `\u0000`, `saved_at`) у базі `SESSIONS_DATABASE_URL` (інакше
+  `DATABASE_URL`). Conductor підставляє спільну `stealth_shared` — сесії бачать усі воркспейси й агенти; `archive` її не чіпає.
+  `createSessionVault`: Postgres, а без нього — файли `SESSIONS_DIR`/`sessions/` (0600, gitignored); одне джерело за раз, файли —
+  не запасна копія. Перенесення файлів у БД: `scripts/import-sessions.mjs` (наявні назви не перезаписує, файли лишає).
+  `save_session {account, site, description}`: без поля при перезаписі — попереднє, `site` за замовчуванням — домен вкладки.
+  `list_sessions {query}` — пошук за назвою/акаунтом/сайтом/описом (домени cookies — лише якщо там нічого: `accounts.google.com` є майже в кожній сесії). Рушій: без `engine` і без рушія в пресеті
+  підставляється той, у якому сесію збережено («engine=… (із сесії)»), явний інший → ⚠ у заголовку. Лише рушій — не решта конфігу.
 - **Розмір вікна і DPR для Camoufox** (`fingerprint.viewport {width,height}` / `fingerprint.deviceScaleFactor` у
   `open_page`/`run_scenario`/`open_browser`): Juggler застосовує їх нативно як опції `newContext` (перевірено 2026-10-31:
   1500×1125 @2× → `innerWidth` 1500, `devicePixelRatio` 2, `min-resolution: 2dppx`, скрин 3000×2250; Google Sheets із
@@ -824,7 +831,8 @@ routes/mcp.js              # POST /mcp — MCP-сервер для Claude (Strea
 lib/mcp.js, lib/mcpTools.js# протокол MCP (JSON-RPC); тули get_config/open_page/list_scenarios/run_scenario
 lib/scratch.js             # тимчасові браузери для конфігу «на один запит» (MCP)
 lib/interactive.js         # видимі вікна MCP open_browser (ручний вхід)
-lib/savedSessions.js       # збережені сесії входу (storageState) у SESSIONS_DIR
+lib/savedSessions.js       # збережені сесії входу: чиста логіка, файлове сховище, вибір Postgres/файли
+scripts/import-sessions.mjs# разове перенесення сесій із файлів у Postgres
 lib/db.js, lib/uploads.js  # Postgres-репозиторії; завантаження файлів
 lib/logs.js, lib/semaphore.js, lib/http.js, lib/rng.js
 lib/coords.js              # чисті функції координат/скролу (спільний, юніт-тестований)

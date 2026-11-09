@@ -6,7 +6,8 @@ import { createProfileStore } from './lib/profile.js';
 import { setupStealthPlugin } from './lib/stealth.js';
 import { createEngine, defaultLaunchers } from './lib/engine.js';
 import { createSemaphore } from './lib/semaphore.js';
-import { initDb } from './lib/db.js';
+import { initDb, initSessionsDb } from './lib/db.js';
+import { createSavedSessions, createSessionVault } from './lib/savedSessions.js';
 import { createApp } from './lib/app.js';
 import { createSessionStore } from './lib/session.js';
 import { createScratchBrowsers } from './lib/scratch.js';
@@ -35,16 +36,20 @@ const scratch = createScratchBrowsers({ launchers });
 const interactive = createInteractiveBrowsers({ launchers });
 const sem = createSemaphore(config.MAX_CONCURRENT);
 let db = null;
+let sessionsDb = null;
+// Збережені сесії входу MCP: Postgres, поки він не підключився або недоступний — файли.
+const savedSessions = createSessionVault({ getRepo: () => sessionsDb, files: createSavedSessions(config.SESSIONS_DIR) });
 
 // Живі сесії запису: max 2, простій 5 хв, sweep кожні 30 с (unref-таймер).
 const sessions = createSessionStore();
 sessions.start();
 
-const app = createApp({ config, engine, sem, profileStore, sessions, scratch, interactive, getDb: () => db });
+const app = createApp({ config, engine, sem, profileStore, sessions, scratch, interactive, savedSessions, getDb: () => db });
 
 // Лише локальний інтерфейс за замовчуванням (config.HOST = 127.0.0.1).
 const server = app.listen(config.PORT, config.HOST, async () => {
   db = await initDb(config.DB_URL).catch((e) => { console.error('Помилка БД:', e.message); return null; });
+  sessionsDb = await initSessionsDb(config.SESSIONS_DB_URL || config.DB_URL).catch((e) => { console.error('Помилка БД сесій:', e.message); return null; });
   try {
     await engine.ensureEngine(); // 1) прогріваємо сам браузер (раз)
     await engine.refillPool();   // 2) заздалегідь готуємо пул контекстів зі сторінками
@@ -71,6 +76,7 @@ async function shutdown(signal) {
   await interactive.closeAll().catch(() => {});
   await engine.close().catch(() => {});
   if (db) await db.end().catch(() => {});
+  if (sessionsDb) await sessionsDb.end().catch(() => {});
   process.exit(0);
 }
 process.once('SIGTERM', () => shutdown('SIGTERM'));

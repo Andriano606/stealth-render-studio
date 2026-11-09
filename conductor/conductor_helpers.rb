@@ -26,7 +26,7 @@ module ConductorHelpers
 
   # --- shared infrastructure (see docker-compose.yml) -----------------------
   HOST         = '127.0.0.1'
-  PG_CONTAINER = 'stealth-cdt-postgres'
+  PG_CONTAINER = 'stealth-render-studio-postgres'
   PG_HOST_PORT = 5437          # 5432/5433/5436 already used on this machine
   PG_USER      = 'stealth'
   PG_PASSWORD  = 'stealth'
@@ -105,6 +105,9 @@ module ConductorHelpers
   def db_name(slug = workspace_slug)
     "stealth_dev_#{slug}"
   end
+
+  # Saved login sessions (MCP) are shared by ALL workspaces — never dropped by archive.
+  SESSIONS_DB = 'stealth_shared'
 
   # --- per-workspace index registry (conductor_dir/.state/<slug>.port) ------
   def state_file
@@ -205,6 +208,7 @@ module ConductorHelpers
     {
       'PORT' => port.to_s,
       'DATABASE_URL' => database_url,
+      'SESSIONS_DATABASE_URL' => database_url(SESSIONS_DB),
       'PROFILE_FILE' => profile_file,
       'UPLOAD_DIR' => upload_dir
     }

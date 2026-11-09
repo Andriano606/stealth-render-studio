@@ -30,8 +30,10 @@ Same shape as `/home/andrii/Documents/taxmate/scripts` (Ruby orchestration + doc
    worktree are app-gitignored only (`node_modules/`, `profile.json`, `uploads/`) — check with
    `git check-ignore` before adding new ones. `setup` asserts `git status --porcelain` is empty.
 3. **Scripts never commit or push.**
-4. **One shared infra stack** (`stealth-cdt-postgres`, host 5437); isolation per workspace:
-   DB `stealth_dev_<slug>`, port, profile.json, uploads/.
+4. **One shared infra stack** (`stealth-render-studio-postgres`, host 5437); isolation per workspace:
+   DB `stealth_dev_<slug>`, port, profile.json, uploads/. Exception: `stealth_shared`
+   (`SESSIONS_DB`, injected as `SESSIONS_DATABASE_URL`) holds saved MCP login sessions for ALL
+   workspaces on purpose; setup/run create it, archive never drops it. It contains live login cookies.
 
 ## Layout
 

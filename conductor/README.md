@@ -75,12 +75,14 @@ gitignored-шляхів:
 
 ## Спільна інфраструктура (docker-compose.yml)
 
-**Postgres 17**, контейнер `stealth-cdt-postgres`, порт хоста **5437** (5432 — mysql,
+**Postgres 17**, контейнер `stealth-render-studio-postgres`, порт хоста **5437** (5432 — mysql,
 5433/5436 зайняті). Логін `stealth` / `stealth`.
 
 ```bash
-docker exec -it stealth-cdt-postgres psql -U stealth -l      # список БД воркспейсів
+docker exec -it stealth-render-studio-postgres psql -U stealth -l      # список БД воркспейсів
 ```
+
+База `stealth_shared` — спільна для всіх воркспейсів: збережені сесії входу MCP (живі cookies). `archive` її не видаляє.
 
 ## Прапорці (env Conductor-а або перед ручним запуском)
 

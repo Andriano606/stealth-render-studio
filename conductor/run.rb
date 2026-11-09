@@ -26,6 +26,7 @@ def main
 
   ensure_infra!
   ensure_database!
+  ensure_database!(SESSIONS_DB)
   unless Dir.exist?(File.join(workspace_root, 'node_modules'))
     error_exit('node_modules missing.', 'Run the Setup script first (or `npm ci`).')
   end
